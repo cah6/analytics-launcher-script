@@ -33,11 +33,13 @@ main = do
   cd "analytics-processor/build/distributions"
   baseDir <- pwd
   -- unzip all nodes and join 
-  sh $ parallel $ unzipCmds (map fst config)
+  sh $ parallel $ unzipCmds (map nodeName config)
   -- run all the nodes
   runManaged (startAllNodes baseDir)
   -- should not hit this until you ctrl+c
   putStrLn "End of the script!"
+  where 
+    getFst (a, b, c) = a 
 
 unzipCmds :: [String] -> [IO ()]
 unzipCmds = map (shellsNoArgs . fromString . (++) "unzip analytics-processor.zip -d ") 
@@ -65,22 +67,29 @@ startNonEsNodes baseDir = do
   let pids = map fromJust $ filter isJust mpids
   _ <- installHandler sigINT (killHandles pids) Nothing
   _ <- installHandler sigTERM (killHandles pids) Nothing
-  void $ traverse waitForProcess mhandles
+  void $ traverse waitAndPrintWhenFinished (zip mhandles mpids)
+
+-- todo: can probably just remove this
+waitAndPrintWhenFinished :: (ProcessHandle, Maybe PHANDLE) -> IO ()
+waitAndPrintWhenFinished (_, Nothing) = putStrLn "One of the processes ended before we could get to it."
+waitAndPrintWhenFinished (ph, Just pid) = do 
+  exitCode <- waitForProcess ph 
+  print ("Process with id " <> show pid <> " exited with code " <> show exitCode)
 
 killHandles :: [PHANDLE] -> Signals.Handler
 killHandles = Catch . void . traverse (kill9 . show)
 
 kill9 :: String -> IO () 
-kill9 pid = void $ trace ("Killing process with id: " ++ pid) $ shellsNoArgs (fromString ("kill -9 " ++ pid))
+kill9 pid = void $ trace ("Killing process with id: " ++ pid) $ shellNoArgs (fromString ("kill -9 " ++ pid))
 
-configToStartCmd :: T.FilePath -> NodeWithProps -> Text
-configToStartCmd baseDir (nodeName, props) = finalCmd where 
+configToStartCmd :: T.FilePath -> NodeConfig -> Text
+configToStartCmd baseDir nodeConfig = finalCmd where 
   confDir = format (s%"/conf") apDir 
-  apDir = format (fp%"/"%s%"/analytics-processor") baseDir (fromString nodeName)
+  apDir = format (fp%"/"%s%"/analytics-processor") baseDir (fromString $ nodeName nodeConfig)
   shFile = format (s%"/bin/analytics-processor.sh") apDir
-  propFile = format (s%"/analytics-"%s%".properties") confDir (fromString nodeName) 
+  propFile = format (s%"/analytics-"%s%".properties") confDir (fromString $ nodeName nodeConfig) 
   logPathProp = format ("-D ad.dw.log.path="%s%"/logs") apDir
-  extraProps = format (s%" "%s) logPathProp $ (fromString . unwords) props
+  extraProps = format (s%" "%s) logPathProp $ (fromString . unwords) (propertyOverrides nodeConfig)
   finalCmd = format ("sh "%s%" start -p "%s%" "%s) shFile propFile extraProps
 
 shellReturnHandle :: Text -> IO ProcessHandle
@@ -122,43 +131,68 @@ getPropOrDie prop message = do
 --     ])
 --   ]
 
-type NodeConfigs = [NodeWithProps]
-type NodeWithProps = (NodeName, [PropertyOverride])
+type NodeConfigs = [NodeConfig]
+data NodeConfig = NodeConfig {
+    nodeName :: NodeName
+  , propertyOverrides :: [PropertyOverride]
+  , extraVmOption :: Maybe ExtraVmOption
+  }
 type NodeName = String
 type PropertyOverride = String
+type ExtraVmOption = String
 
 javaDebugString = "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005"
 
 config :: NodeConfigs
 config = [
-    ("store-master", [
-        "-D ad.es.node.minimum_master_nodes=1"
-      , "-D ad.dw.http.port=9050"
-      , "-D ad.dw.http.adminPort=9051"
-    ])
-  , ("api", [
-        "-D ad.admin.cluster.name=appdynamics-analytics-cluster"
-      , "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300"
-      , "-D ad.es.event.index.replicas=0"
-      , "-D ad.es.metadata.replicas=0"
-      , "-D ad.es.metadata.entities.replicas=0"
-      , "-D ad.dw.http.port=9080"
-      , "-D ad.dw.http.adminPort=9081"
-    ])
-  , ("indexer", [
-        "-D ad.admin.cluster.name=appdynamics-analytics-cluster"
-      , "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300"
-      , "-D ad.kafka.replication.factor=1"
-      , "-D ad.dw.http.port=9070"
-      , "-D ad.dw.http.adminPort=9071"
-    ])
-  , ("kafka-broker", [
-        "-D ad.kafka.replication.factor=1"
-      , "-D ad.dw.http.port=9060"
-      , "-D ad.dw.http.adminPort=9061"
-    ])
-  , ("zookeeper", [
-        "-D ad.dw.http.port=9040"
-      , "-D ad.dw.http.adminPort=9041"
-    ])
+    NodeConfig {
+      nodeName = "store-master"
+    , propertyOverrides = [
+          "-D ad.es.node.minimum_master_nodes=1"
+        , "-D ad.dw.http.port=9050"
+        , "-D ad.dw.http.adminPort=9051"
+        ]
+    , extraVmOption = Nothing
+    }
+  , NodeConfig {
+      nodeName = "api"
+    , propertyOverrides = [
+          "-D ad.admin.cluster.name=appdynamics-analytics-cluster"
+        , "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300"
+        , "-D ad.es.event.index.replicas=0"
+        , "-D ad.es.metadata.replicas=0"
+        , "-D ad.es.metadata.entities.replicas=0"
+        , "-D ad.dw.http.port=9080"
+        , "-D ad.dw.http.adminPort=9081"
+        ]
+    , extraVmOption = Nothing
+    }
+  , NodeConfig {
+      nodeName = "indexer"
+    , propertyOverrides = [
+          "-D ad.admin.cluster.name=appdynamics-analytics-cluster"
+        , "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300"
+        , "-D ad.kafka.replication.factor=1"
+        , "-D ad.dw.http.port=9070"
+        , "-D ad.dw.http.adminPort=9071"
+        ]
+    , extraVmOption = Nothing
+    }
+  , NodeConfig {
+      nodeName = "kafka-broker"
+    , propertyOverrides = [
+          "-D ad.kafka.replication.factor=1"
+        , "-D ad.dw.http.port=9060"
+        , "-D ad.dw.http.adminPort=9061"
+        ]
+    , extraVmOption = Nothing
+    }
+  , NodeConfig {
+      nodeName = "zookeeper"
+    , propertyOverrides = [
+          "-D ad.dw.http.port=9040"
+        , "-D ad.dw.http.adminPort=9041"
+        ]
+    , extraVmOption = Nothing
+    }
   ]
