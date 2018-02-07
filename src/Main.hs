@@ -1,6 +1,6 @@
 #!/usr/bin/env stack
--- stack --install-ghc runghc --package turtle                          
-{-# LANGUAGE OverloadedStrings #-} 
+-- stack --install-ghc runghc --package turtle
+{-# LANGUAGE OverloadedStrings #-}
 
 import Data.Maybe
 import Data.Text (unpack, unwords)
@@ -13,7 +13,7 @@ import Data.List
 import Data.ConfigFile
 
 import Network.Wreq as N
-import Control.Retry as R 
+import Control.Retry as R
 
 import Control.Concurrent
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, tryTakeMVar)
@@ -32,7 +32,7 @@ main = do
   shellsNoArgs "./gradlew --build-cache -p analytics-processor clean distZip"
   cd "analytics-processor/build/distributions"
   baseDir <- pwd
-  -- unzip all nodes and join 
+  -- unzip all nodes and join
   sh $ parallel $ unzipCmds (map nodeName config)
   -- run all the nodes
   runManaged (startAllNodes baseDir)
@@ -44,7 +44,7 @@ unzipCmds = map (shellsNoArgs . (<>) "unzip analytics-processor.zip -d ")
 
 -- this is "managed" because we want ES to start async but be brought down when we quit the program
 startAllNodes :: T.FilePath -> Managed ()
-startAllNodes baseDir = do 
+startAllNodes baseDir = do
   ref <- fork (startEs baseDir)
   liftIO waitForElasticsearch
   using $ sh $ liftIO $ startNonEsNodes baseDir
@@ -54,12 +54,12 @@ startEs :: T.FilePath -> IO ()
 startEs baseDir = shellsNoArgs $ configToStartCmd baseDir (head config)
 
 waitForElasticsearch :: IO ()
-waitForElasticsearch = recoverAll (R.constantDelay 1000000 <> R.limitRetries 30) go where 
+waitForElasticsearch = recoverAll (R.constantDelay 1000000 <> R.limitRetries 30) go where
   go _ = trace "Waiting for Elasticsearch to start up..." $
           void $ N.get "http://localhost:9400"
 
 startNonEsNodes :: T.FilePath -> IO ()
-startNonEsNodes baseDir = do 
+startNonEsNodes baseDir = do
   _ <- traverse (editVmOptionsFile baseDir) (tail config)
   mhandles <- traverse (shellReturnHandle . configToStartCmd baseDir) (tail config)
   mpids <- traverse getPid mhandles
@@ -69,7 +69,7 @@ startNonEsNodes baseDir = do
   void $ traverse waitForProcess mhandles
 
 editVmOptionsFile :: T.FilePath -> NodeConfig -> IO ()
-editVmOptionsFile baseDir nodeConfig = go fileLocation (extraVmOption nodeConfig) where 
+editVmOptionsFile baseDir nodeConfig = go fileLocation (extraVmOption nodeConfig) where
   go :: T.FilePath -> Maybe ExtraVmOption -> IO ()
   go _ Nothing = return ()
   go vmOptionsFile (Just vmoption) = append vmOptionsFile (fromString $ unpack vmoption)
@@ -80,21 +80,21 @@ editVmOptionsFile baseDir nodeConfig = go fileLocation (extraVmOption nodeConfig
 killHandles :: [PHANDLE] -> Signals.Handler
 killHandles = Catch . void . traverse (kill9 . show)
 
-kill9 :: String -> IO () 
+kill9 :: String -> IO ()
 kill9 pid = void $ trace ("Killing process with id: " ++ pid) $ shellNoArgs (fromString ("kill -9 " ++ pid))
 
 configToStartCmd :: T.FilePath -> NodeConfig -> Text
-configToStartCmd baseDir nodeConfig = finalCmd where 
-  confDir = format (s%"/conf") apDir 
+configToStartCmd baseDir nodeConfig = finalCmd where
+  confDir = format (s%"/conf") apDir
   apDir = format (fp%"/"%s%"/analytics-processor") baseDir (nodeName nodeConfig)
   shFile = format (s%"/bin/analytics-processor.sh") apDir
-  propFile = format (s%"/analytics-"%s%".properties") confDir (nodeName nodeConfig) 
+  propFile = format (s%"/analytics-"%s%".properties") confDir (nodeName nodeConfig)
   logPathProp = format ("-D ad.dw.log.path="%s%"/logs") apDir
   extraProps = format (s%" "%s) logPathProp $ Data.Text.unwords (propertyOverrides nodeConfig)
   finalCmd = format ("sh "%s%" start -p "%s%" "%s) shFile propFile extraProps
 
 shellReturnHandle :: Text -> IO ProcessHandle
-shellReturnHandle cmd = do 
+shellReturnHandle cmd = do
   (_, _, _, phandle) <- createProcess (P.shell (unpack cmd))
   return phandle
 
@@ -113,9 +113,9 @@ shellsNoArgs :: Text -> IO ()
 shellsNoArgs cmd = shells cmd empty
 
 getPropOrDie :: Text -> Text -> IO T.FilePath
-getPropOrDie prop message = do 
+getPropOrDie prop message = do
   homeDir <- need prop
-  case homeDir of 
+  case homeDir of
     Nothing -> die (prop <> " was not set. " <> message)
     Just a  -> return $ fromText a
 
