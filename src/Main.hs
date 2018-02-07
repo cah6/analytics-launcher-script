@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-} 
 
 import Data.Maybe
-import Data.Text (unpack) 
+import Data.Text (unpack, unwords)
 
 import Debug.Trace
 import Turtle as T
@@ -38,11 +38,9 @@ main = do
   runManaged (startAllNodes baseDir)
   -- should not hit this until you ctrl+c
   putStrLn "End of the script!"
-  where 
-    getFst (a, b, c) = a 
 
-unzipCmds :: [String] -> [IO ()]
-unzipCmds = map (shellsNoArgs . fromString . (++) "unzip analytics-processor.zip -d ") 
+unzipCmds :: [Text] -> [IO ()]
+unzipCmds = map (shellsNoArgs . (<>) "unzip analytics-processor.zip -d ")
 
 -- this is "managed" because we want ES to start async but be brought down when we quit the program
 startAllNodes :: T.FilePath -> Managed ()
@@ -62,19 +60,22 @@ waitForElasticsearch = recoverAll (R.constantDelay 1000000 <> R.limitRetries 30)
 
 startNonEsNodes :: T.FilePath -> IO ()
 startNonEsNodes baseDir = do 
+  _ <- traverse (editVmOptionsFile baseDir) (tail config)
   mhandles <- traverse (shellReturnHandle . configToStartCmd baseDir) (tail config)
   mpids <- traverse getPid mhandles
   let pids = map fromJust $ filter isJust mpids
   _ <- installHandler sigINT (killHandles pids) Nothing
   _ <- installHandler sigTERM (killHandles pids) Nothing
-  void $ traverse waitAndPrintWhenFinished (zip mhandles mpids)
+  void $ traverse waitForProcess mhandles
 
--- todo: can probably just remove this
-waitAndPrintWhenFinished :: (ProcessHandle, Maybe PHANDLE) -> IO ()
-waitAndPrintWhenFinished (_, Nothing) = putStrLn "One of the processes ended before we could get to it."
-waitAndPrintWhenFinished (ph, Just pid) = do 
-  exitCode <- waitForProcess ph 
-  print ("Process with id " <> show pid <> " exited with code " <> show exitCode)
+editVmOptionsFile :: T.FilePath -> NodeConfig -> IO ()
+editVmOptionsFile baseDir nodeConfig = go fileLocation (extraVmOption nodeConfig) where 
+  go :: T.FilePath -> Maybe ExtraVmOption -> IO ()
+  go _ Nothing = return ()
+  go vmOptionsFile (Just vmoption) = append vmOptionsFile (fromString $ unpack vmoption)
+
+  fileLocation :: T.FilePath
+  fileLocation = fromText $ format (fp%"/"%s%"/analytics-processor/conf/analytics-processor.vmoptions") baseDir (nodeName nodeConfig)
 
 killHandles :: [PHANDLE] -> Signals.Handler
 killHandles = Catch . void . traverse (kill9 . show)
@@ -85,11 +86,11 @@ kill9 pid = void $ trace ("Killing process with id: " ++ pid) $ shellNoArgs (fro
 configToStartCmd :: T.FilePath -> NodeConfig -> Text
 configToStartCmd baseDir nodeConfig = finalCmd where 
   confDir = format (s%"/conf") apDir 
-  apDir = format (fp%"/"%s%"/analytics-processor") baseDir (fromString $ nodeName nodeConfig)
+  apDir = format (fp%"/"%s%"/analytics-processor") baseDir (nodeName nodeConfig)
   shFile = format (s%"/bin/analytics-processor.sh") apDir
-  propFile = format (s%"/analytics-"%s%".properties") confDir (fromString $ nodeName nodeConfig) 
+  propFile = format (s%"/analytics-"%s%".properties") confDir (nodeName nodeConfig) 
   logPathProp = format ("-D ad.dw.log.path="%s%"/logs") apDir
-  extraProps = format (s%" "%s) logPathProp $ (fromString . unwords) (propertyOverrides nodeConfig)
+  extraProps = format (s%" "%s) logPathProp $ Data.Text.unwords (propertyOverrides nodeConfig)
   finalCmd = format ("sh "%s%" start -p "%s%" "%s) shFile propFile extraProps
 
 shellReturnHandle :: Text -> IO ProcessHandle
@@ -137,11 +138,11 @@ data NodeConfig = NodeConfig {
   , propertyOverrides :: [PropertyOverride]
   , extraVmOption :: Maybe ExtraVmOption
   }
-type NodeName = String
-type PropertyOverride = String
-type ExtraVmOption = String
+type NodeName = Text
+type PropertyOverride = Text
+type ExtraVmOption = Text
 
-javaDebugString = "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005"
+javaDebugString = Just "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005"
 
 config :: NodeConfigs
 config = [
@@ -165,7 +166,7 @@ config = [
         , "-D ad.dw.http.port=9080"
         , "-D ad.dw.http.adminPort=9081"
         ]
-    , extraVmOption = Nothing
+    , extraVmOption = javaDebugString
     }
   , NodeConfig {
       nodeName = "indexer"
