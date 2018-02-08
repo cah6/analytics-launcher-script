@@ -29,3 +29,6 @@ executable analytics-startup
                      , process
                      , text
                      , unix
+                     , aeson
+                     , bytestring
+                     , system-filepath

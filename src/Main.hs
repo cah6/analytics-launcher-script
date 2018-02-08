@@ -1,9 +1,14 @@
 #!/usr/bin/env stack
 -- stack --install-ghc runghc --package turtle
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 
+import Data.Aeson
+import Data.Aeson.Types
+import qualified Data.ByteString.Lazy as B
 import Data.Maybe
 import Data.Text (unpack, unwords)
+import Filesystem.Path.CurrentOS (encodeString, decodeString)
 
 import Debug.Trace
 import Turtle as T
@@ -26,7 +31,17 @@ import System.Process as P
 import System.Process.Internals
 import System.Posix.Signals as Signals
 
+import GHC.Generics
+
+-- todo list
+-- use reader to pass around config I get from the start
+-- partition by nodes in tier store-* instead of getting list head and tail
+
 main = do
+  planPath <- T.options "Script to start up SaaS-like analytics cluster." optionsParser
+  currDir <- pwd
+  config <- makeNodeConfig currDir planPath
+  print config
   home <- getPropOrDie "ANALYTICS_HOME" "Set it to be something like /Users/firstname.lastname/appdynamics/analytics-codebase/analytics"
   cd home
   shellsNoArgs "./gradlew --build-cache -p analytics-processor clean distZip"
@@ -35,31 +50,41 @@ main = do
   -- unzip all nodes and join
   sh $ parallel $ unzipCmds (map nodeName config)
   -- run all the nodes
-  runManaged (startAllNodes baseDir)
+  runManaged (startAllNodes baseDir config)
   -- should not hit this until you ctrl+c
   putStrLn "End of the script!"
+
+makeNodeConfig :: T.FilePath -> T.FilePath -> IO NodeConfigs
+makeNodeConfig basePath relativePath = do
+  planInBytes <- B.readFile (encodeString $ basePath <> relativePath)
+  case eitherDecode planInBytes of
+    Left err  -> die $ fromString $ "Could not read input file into plan object: " <> err
+    Right val -> return val
+
+optionsParser :: T.Parser T.FilePath
+optionsParser = optPath "plan" 'p' "The cluster json plan to use."
 
 unzipCmds :: [Text] -> [IO ()]
 unzipCmds = map (shellsNoArgs . (<>) "unzip analytics-processor.zip -d ")
 
--- this is "managed" because we want ES to start async but be brought down when we quit the program
-startAllNodes :: T.FilePath -> Managed ()
-startAllNodes baseDir = do
-  ref <- fork (startEs baseDir)
+-- this is "managed" because we want ES to start async but have it be brought down when we quit the program
+startAllNodes :: T.FilePath -> NodeConfigs -> Managed ()
+startAllNodes baseDir config = do
+  ref <- fork (startEs baseDir config)
   liftIO waitForElasticsearch
-  using $ sh $ liftIO $ startNonEsNodes baseDir
+  using $ sh $ liftIO $ startNonEsNodes baseDir config
   return ()
 
-startEs :: T.FilePath -> IO ()
-startEs baseDir = shellsNoArgs $ configToStartCmd baseDir (head config)
+startEs :: T.FilePath -> NodeConfigs -> IO ()
+startEs baseDir config = shellsNoArgs $ configToStartCmd baseDir (head config)
 
 waitForElasticsearch :: IO ()
 waitForElasticsearch = recoverAll (R.constantDelay 1000000 <> R.limitRetries 30) go where
   go _ = trace "Waiting for Elasticsearch to start up..." $
           void $ N.get "http://localhost:9400"
 
-startNonEsNodes :: T.FilePath -> IO ()
-startNonEsNodes baseDir = do
+startNonEsNodes :: T.FilePath -> NodeConfigs -> IO ()
+startNonEsNodes baseDir config = do
   _ <- traverse (editVmOptionsFile baseDir) (tail config)
   mhandles <- traverse (shellReturnHandle . configToStartCmd baseDir) (tail config)
   mpids <- traverse getPid mhandles
@@ -119,81 +144,16 @@ getPropOrDie prop message = do
     Nothing -> die (prop <> " was not set. " <> message)
     Just a  -> return $ fromText a
 
--- apiStoreConfig = [
---     ("api-store", [
---         "-D ad.dw.log.path=logs"
---       , "-D ad.admin.cluster.name=appdynamics-analytics-cluster"
---     ])
---   ]
-
--- hack_config = [
---     ("hackathon", [
---         "-D ad.dw.log.path=logs"
---     ])
---   ]
-
 type NodeConfigs = [NodeConfig]
 data NodeConfig = NodeConfig {
     nodeName :: NodeName
   , propertyOverrides :: [PropertyOverride]
   , extraVmOption :: Maybe ExtraVmOption
-  }
+  } deriving (Generic, Show)
+
+instance ToJSON NodeConfig
+instance FromJSON NodeConfig
+
 type NodeName = Text
 type PropertyOverride = Text
 type ExtraVmOption = Text
-
-javaDebugString = Just "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005"
-
-config :: NodeConfigs
-config = [
-    NodeConfig {
-      nodeName = "store-master"
-    , propertyOverrides = [
-          "-D ad.es.node.minimum_master_nodes=1"
-        , "-D ad.dw.http.port=9050"
-        , "-D ad.dw.http.adminPort=9051"
-        ]
-    , extraVmOption = Nothing
-    }
-  , NodeConfig {
-      nodeName = "api"
-    , propertyOverrides = [
-          "-D ad.admin.cluster.name=appdynamics-analytics-cluster"
-        , "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300"
-        , "-D ad.es.event.index.replicas=0"
-        , "-D ad.es.metadata.replicas=0"
-        , "-D ad.es.metadata.entities.replicas=0"
-        , "-D ad.dw.http.port=9080"
-        , "-D ad.dw.http.adminPort=9081"
-        ]
-    , extraVmOption = javaDebugString
-    }
-  , NodeConfig {
-      nodeName = "indexer"
-    , propertyOverrides = [
-          "-D ad.admin.cluster.name=appdynamics-analytics-cluster"
-        , "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300"
-        , "-D ad.kafka.replication.factor=1"
-        , "-D ad.dw.http.port=9070"
-        , "-D ad.dw.http.adminPort=9071"
-        ]
-    , extraVmOption = Nothing
-    }
-  , NodeConfig {
-      nodeName = "kafka-broker"
-    , propertyOverrides = [
-          "-D ad.kafka.replication.factor=1"
-        , "-D ad.dw.http.port=9060"
-        , "-D ad.dw.http.adminPort=9061"
-        ]
-    , extraVmOption = Nothing
-    }
-  , NodeConfig {
-      nodeName = "zookeeper"
-    , propertyOverrides = [
-          "-D ad.dw.http.port=9040"
-        , "-D ad.dw.http.adminPort=9041"
-        ]
-    , extraVmOption = Nothing
-    }
-  ]
