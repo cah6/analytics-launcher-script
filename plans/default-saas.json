@@ -1,0 +1,48 @@
+[
+  {
+    "nodeName": "store-master",
+    "propertyOverrides": [
+      "-D ad.es.node.minimum_master_nodes=1",
+      "-D ad.dw.http.port=9050",
+      "-D ad.dw.http.adminPort=9051"
+    ]
+  },
+  {
+    "nodeName": "api",
+    "debugOption": "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005",
+    "propertyOverrides": [
+      "-D ad.admin.cluster.name=appdynamics-analytics-cluster",
+      "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
+      "-D ad.es.event.index.replicas=0",
+      "-D ad.es.metadata.replicas=0",
+      "-D ad.es.metadata.entities.replicas=0",
+      "-D ad.dw.http.port=9080",
+      "-D ad.dw.http.adminPort=9081"
+      ]
+  },
+  {
+    "nodeName": "indexer",
+    "propertyOverrides": [
+      "-D ad.admin.cluster.name=appdynamics-analytics-cluster",
+      "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
+      "-D ad.kafka.replication.factor=1",
+      "-D ad.dw.http.port=9070",
+      "-D ad.dw.http.adminPort=9071"
+    ]
+  },
+  {
+    "nodeName": "kafka-broker",
+    "propertyOverrides": [
+      "-D ad.kafka.replication.factor=1",
+      "-D ad.dw.http.port=9060",
+      "-D ad.dw.http.adminPort=9061"
+    ]
+  },
+  {
+    "nodeName": "zookeeper",
+    "propertyOverrides": [
+      "-D ad.dw.http.port=9040",
+      "-D ad.dw.http.adminPort=9041"
+    ]
+  }
+]
