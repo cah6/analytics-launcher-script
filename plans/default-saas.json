@@ -17,7 +17,8 @@
       "-D ad.es.metadata.replicas=0",
       "-D ad.es.metadata.entities.replicas=0",
       "-D ad.dw.http.port=9080",
-      "-D ad.dw.http.adminPort=9081"
+      "-D ad.dw.http.adminPort=9081",
+      "-D ad.jf.http.port=9030"
       ]
   },
   {
@@ -43,6 +44,14 @@
     "propertyOverrides": [
       "-D ad.dw.http.port=9040",
       "-D ad.dw.http.adminPort=9041"
+    ]
+  },
+  {
+    "nodeName": "job-framework",
+    "propertyOverrides": [
+      "-D ad.dw.http.port=9030",
+      "-D ad.dw.http.adminPort=9031",
+      "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300"
     ]
   }
 ]

@@ -33,7 +33,7 @@ import System.Posix.Signals as Signals
 
 import GHC.Generics
 
--- todo list
+-- todo / ideas list
 -- use reader to pass around config I get from the start
 -- partition by nodes in tier store-* instead of getting list head and tail
 
@@ -94,8 +94,8 @@ startNonEsNodes baseDir config = do
   void $ traverse waitForProcess mhandles
 
 editVmOptionsFile :: T.FilePath -> NodeConfig -> IO ()
-editVmOptionsFile baseDir nodeConfig = go fileLocation (extraVmOption nodeConfig) where
-  go :: T.FilePath -> Maybe ExtraVmOption -> IO ()
+editVmOptionsFile baseDir nodeConfig = go fileLocation (debugOption nodeConfig) where
+  go :: T.FilePath -> Maybe DebugOption -> IO ()
   go _ Nothing = return ()
   go vmOptionsFile (Just vmoption) = append vmOptionsFile (fromString $ unpack vmoption)
 
@@ -148,7 +148,7 @@ type NodeConfigs = [NodeConfig]
 data NodeConfig = NodeConfig {
     nodeName :: NodeName
   , propertyOverrides :: [PropertyOverride]
-  , extraVmOption :: Maybe ExtraVmOption
+  , debugOption :: Maybe DebugOption
   } deriving (Generic, Show)
 
 instance ToJSON NodeConfig
@@ -156,4 +156,4 @@ instance FromJSON NodeConfig
 
 type NodeName = Text
 type PropertyOverride = Text
-type ExtraVmOption = Text
+type DebugOption = Text
