@@ -7,7 +7,7 @@ import Data.Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString.Lazy as B
 import Data.Maybe
-import Data.Text (unpack, unwords)
+import Data.Text (unpack, unwords, isPrefixOf, stripPrefix)
 import Filesystem.Path.CurrentOS (encodeString, decodeString)
 
 import Debug.Trace
@@ -71,17 +71,32 @@ unzipCmds = map (shellsNoArgs . (<>) "unzip analytics-processor.zip -d ")
 startAllNodes :: T.FilePath -> NodeConfigs -> Managed ()
 startAllNodes baseDir config = do
   ref <- fork (startEs baseDir config)
-  liftIO waitForElasticsearch
-  using $ sh $ liftIO $ startNonEsNodes baseDir config
+  esPort <- liftIO $ getElasticsearchPort config
+  liftIO $ waitForElasticsearch esPort
+  using . sh . liftIO $ startNonEsNodes baseDir config
   return ()
 
 startEs :: T.FilePath -> NodeConfigs -> IO ()
 startEs baseDir config = shellsNoArgs $ configToStartCmd baseDir (head config)
 
-waitForElasticsearch :: IO ()
-waitForElasticsearch = recoverAll (R.constantDelay 1000000 <> R.limitRetries 30) go where
+getElasticsearchPort :: NodeConfigs -> IO Text
+getElasticsearchPort configs = case getOptElasticsearchPort configs of
+    Nothing -> die "ad.es.node.http.port wasn't set in elasticsearch property overrides"
+    Just a  -> return a
+
+getOptElasticsearchPort :: NodeConfigs -> Maybe Text
+getOptElasticsearchPort configs = do
+  let portPrefix = "ad.es.node.http.port=" :: Text
+  let isPortProp p = portPrefix `Data.Text.isPrefixOf` p
+  let esProps = propertyOverrides (head configs)
+
+  portProp <- Data.List.find isPortProp esProps
+  Data.Text.stripPrefix portPrefix portProp
+
+waitForElasticsearch :: Text -> IO ()
+waitForElasticsearch esPort = recoverAll (R.constantDelay 1000000 <> R.limitRetries 30) go where
   go _ = trace "Waiting for Elasticsearch to start up..." $
-          void $ N.get "http://localhost:9400"
+          void $ N.get ("http://localhost:" <> unpack esPort)
 
 startNonEsNodes :: T.FilePath -> NodeConfigs -> IO ()
 startNonEsNodes baseDir config = do
@@ -115,8 +130,11 @@ configToStartCmd baseDir nodeConfig = finalCmd where
   shFile = format (s%"/bin/analytics-processor.sh") apDir
   propFile = format (s%"/analytics-"%s%".properties") confDir (nodeName nodeConfig)
   logPathProp = format ("-D ad.dw.log.path="%s%"/logs") apDir
-  extraProps = format (s%" "%s) logPathProp $ Data.Text.unwords (propertyOverrides nodeConfig)
+  extraProps = format (s%" "%s) logPathProp $ getPropertyOverrideString nodeConfig
   finalCmd = format ("sh "%s%" start -p "%s%" "%s) shFile propFile extraProps
+
+getPropertyOverrideString :: NodeConfig -> Text
+getPropertyOverrideString nodeConfig = Data.Text.unwords $ map (\s -> "-D " <> s) (propertyOverrides nodeConfig)
 
 shellReturnHandle :: Text -> IO ProcessHandle
 shellReturnHandle cmd = do

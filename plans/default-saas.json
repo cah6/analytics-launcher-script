@@ -2,56 +2,57 @@
   {
     "nodeName": "store-master",
     "propertyOverrides": [
-      "-D ad.es.node.minimum_master_nodes=1",
-      "-D ad.dw.http.port=9050",
-      "-D ad.dw.http.adminPort=9051"
+      "ad.es.node.minimum_master_nodes=1",
+      "ad.dw.http.port=9050",
+      "ad.dw.http.adminPort=9051",
+      "ad.es.node.http.port=9400"
     ]
   },
   {
     "nodeName": "api",
     "debugOption": "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005",
     "propertyOverrides": [
-      "-D ad.admin.cluster.name=appdynamics-analytics-cluster",
-      "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
-      "-D ad.es.event.index.replicas=0",
-      "-D ad.es.metadata.replicas=0",
-      "-D ad.es.metadata.entities.replicas=0",
-      "-D ad.dw.http.port=9080",
-      "-D ad.dw.http.adminPort=9081",
-      "-D ad.jf.http.port=9030"
+      "ad.admin.cluster.name=appdynamics-analytics-cluster",
+      "ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
+      "ad.es.event.index.replicas=0",
+      "ad.es.metadata.replicas=0",
+      "ad.es.metadata.entities.replicas=0",
+      "ad.dw.http.port=9080",
+      "ad.dw.http.adminPort=9081",
+      "ad.jf.http.port=9030"
       ]
   },
   {
     "nodeName": "indexer",
     "propertyOverrides": [
-      "-D ad.admin.cluster.name=appdynamics-analytics-cluster",
-      "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
-      "-D ad.kafka.replication.factor=1",
-      "-D ad.dw.http.port=9070",
-      "-D ad.dw.http.adminPort=9071"
+      "ad.admin.cluster.name=appdynamics-analytics-cluster",
+      "ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
+      "ad.kafka.replication.factor=1",
+      "ad.dw.http.port=9070",
+      "ad.dw.http.adminPort=9071"
     ]
   },
   {
     "nodeName": "kafka-broker",
     "propertyOverrides": [
-      "-D ad.kafka.replication.factor=1",
-      "-D ad.dw.http.port=9060",
-      "-D ad.dw.http.adminPort=9061"
+      "ad.kafka.replication.factor=1",
+      "ad.dw.http.port=9060",
+      "ad.dw.http.adminPort=9061"
     ]
   },
   {
     "nodeName": "zookeeper",
     "propertyOverrides": [
-      "-D ad.dw.http.port=9040",
-      "-D ad.dw.http.adminPort=9041"
+      "ad.dw.http.port=9040",
+      "ad.dw.http.adminPort=9041"
     ]
   },
   {
     "nodeName": "job-framework",
     "propertyOverrides": [
-      "-D ad.dw.http.port=9030",
-      "-D ad.dw.http.adminPort=9031",
-      "-D ad.admin.cluster.unicast.hosts.fallback=localhost:9300"
+      "ad.dw.http.port=9030",
+      "ad.dw.http.adminPort=9031",
+      "ad.admin.cluster.unicast.hosts.fallback=localhost:9300"
     ]
   }
 ]
