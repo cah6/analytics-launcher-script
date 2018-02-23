@@ -13,5 +13,5 @@ This project uses haskell, stack, and haskell's shell scripting library, "turtle
 - go to project root, run `stack build` (this will probably take a while the first time)
 
 Should be good to go, once it has downloaded everything you can run the script with
-`./src/Main.hs`
-and stop it with ctrl-c. 
+`./src/Main.hs -p plans/default-saas.json`
+and stop it with ctrl-c. Also note that you need `ANALYTICS_HOME` set before running this.
