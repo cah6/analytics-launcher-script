@@ -50,7 +50,7 @@ main = do
   -- unzip all nodes and join
   sh $ parallel $ unzipCmds (map nodeName config)
   -- run all the nodes
-  runManaged (startAllNodes baseDir config)
+  _ <- startAllNodes baseDir config
   -- should not hit this until you ctrl+c
   putStrLn "End of the script!"
 
@@ -67,17 +67,23 @@ optionsParser = optPath "plan" 'p' "The cluster json plan to use."
 unzipCmds :: [Text] -> [IO ()]
 unzipCmds = map (shellsNoArgs . (<>) "unzip analytics-processor.zip -d ")
 
--- this is "managed" because we want ES to start async but have it be brought down when we quit the program
-startAllNodes :: T.FilePath -> NodeConfigs -> Managed ()
+startAllNodes :: T.FilePath -> NodeConfigs -> IO ()
 startAllNodes baseDir config = do
-  ref <- fork (startEs baseDir config)
-  esPort <- liftIO $ getElasticsearchPort config
-  liftIO $ waitForElasticsearch esPort
-  using . sh . liftIO $ startNonEsNodes baseDir config
+  esNodeHandles <- startNodes baseDir [head config]
+  -- wait for ES
+  esPort <- getElasticsearchPort config
+  tryWaitForElasticsearch esNodeHandles esPort
+  putStrLn "Elasticsearch is up now!"
+  -- bring up others
+  nonEsNodeHandles <- startNodes baseDir (tail config)
+  -- install handlers and wait for all
+  let allHandles = esNodeHandles ++ nonEsNodeHandles
+  mpids <- traverse getPid allHandles
+  let pids = map fromJust $ filter isJust mpids
+  _ <- installHandler sigINT (killHandles pids) Nothing
+  _ <- installHandler sigTERM (killHandles pids) Nothing
+  void $ traverse waitForProcess allHandles
   return ()
-
-startEs :: T.FilePath -> NodeConfigs -> IO ()
-startEs baseDir config = shellsNoArgs $ configToStartCmd baseDir (head config)
 
 getElasticsearchPort :: NodeConfigs -> IO Text
 getElasticsearchPort configs = case getOptElasticsearchPort configs of
@@ -89,24 +95,28 @@ getOptElasticsearchPort configs = do
   let portPrefix = "ad.es.node.http.port=" :: Text
   let isPortProp p = portPrefix `Data.Text.isPrefixOf` p
   let esProps = propertyOverrides (head configs)
-
   portProp <- Data.List.find isPortProp esProps
   Data.Text.stripPrefix portPrefix portProp
+
+tryWaitForElasticsearch :: [ProcessHandle] -> Text -> IO ()
+tryWaitForElasticsearch handles esPort = catch (waitForElasticsearch esPort) (\e -> do
+  let err = show (e :: SomeException)
+  mpids <- traverse getPid handles
+  let pids = map fromJust $ filter isJust mpids
+  traverse (kill9 . show) pids
+  throw e
+  )
 
 waitForElasticsearch :: Text -> IO ()
 waitForElasticsearch esPort = recoverAll (R.constantDelay 1000000 <> R.limitRetries 30) go where
   go _ = trace "Waiting for Elasticsearch to start up..." $
           void $ N.get ("http://localhost:" <> unpack esPort)
 
-startNonEsNodes :: T.FilePath -> NodeConfigs -> IO ()
-startNonEsNodes baseDir config = do
-  _ <- traverse (editVmOptionsFile baseDir) (tail config)
-  mhandles <- traverse (shellReturnHandle . configToStartCmd baseDir) (tail config)
-  mpids <- traverse getPid mhandles
-  let pids = map fromJust $ filter isJust mpids
-  _ <- installHandler sigINT (killHandles pids) Nothing
-  _ <- installHandler sigTERM (killHandles pids) Nothing
-  void $ traverse waitForProcess mhandles
+startNodes :: T.FilePath -> NodeConfigs -> IO [ProcessHandle]
+startNodes baseDir [] = return []
+startNodes baseDir configs = do
+  _ <- traverse (editVmOptionsFile baseDir) configs
+  traverse (shellReturnHandle . configToStartCmd baseDir) configs
 
 editVmOptionsFile :: T.FilePath -> NodeConfig -> IO ()
 editVmOptionsFile baseDir nodeConfig = go fileLocation (debugOption nodeConfig) where
