@@ -124,7 +124,7 @@ tryWaitForElasticsearch handles esPort = catch (waitForElasticsearch esPort) (\e
   )
 
 waitForElasticsearch :: Text -> IO ()
-waitForElasticsearch esPort = recoverAll (R.constantDelay 1000000 <> R.limitRetries 30) go where
+waitForElasticsearch esPort = recoverAll (R.constantDelay 1000000 <> R.limitRetries 60) go where
   go _ = trace "Waiting for Elasticsearch to start up..." $
           void $ N.get ("http://localhost:" <> unpack esPort)
 
