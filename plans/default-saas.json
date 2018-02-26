@@ -9,6 +9,14 @@
     ]
   },
   {
+    "nodeName": "store-data",
+    "propertyOverrides": [
+      "ad.dw.http.port=9052",
+      "ad.dw.http.adminPort=9053",
+      "ad.es.node.unicast.hosts=localhost:9300"
+    ]
+  },
+  {
     "nodeName": "api",
     "debugOption": "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005",
     "propertyOverrides": [

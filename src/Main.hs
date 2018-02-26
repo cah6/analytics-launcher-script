@@ -36,6 +36,9 @@ import GHC.Generics
 -- todo / ideas list
 -- use reader to pass around config I get from the start
 -- partition by nodes in tier store-* instead of getting list head and tail
+-- call sigterm, wait for a bit, then kill 9
+-- edit version file to user input version
+-- look for "Stopping " in logs, stop startup if it happens
 
 main = do
   planPath <- T.options "Script to start up SaaS-like analytics cluster." optionsParser
@@ -69,6 +72,7 @@ unzipCmds = map (shellsNoArgs . (<>) "unzip analytics-processor.zip -d ")
 
 startAllNodes :: T.FilePath -> NodeConfigs -> IO ()
 startAllNodes baseDir config = do
+  let (esNodes, otherNodes) = partition isStoreConfig config
   esNodeHandles <- startNodes baseDir [head config]
   -- wait for ES
   esPort <- getElasticsearchPort config
@@ -79,11 +83,15 @@ startAllNodes baseDir config = do
   -- install handlers and wait for all
   let allHandles = esNodeHandles ++ nonEsNodeHandles
   mpids <- traverse getPid allHandles
-  let pids = map fromJust $ filter isJust mpids
+  let pids = catMaybes mpids
   _ <- installHandler sigINT (killHandles pids) Nothing
   _ <- installHandler sigTERM (killHandles pids) Nothing
   void $ traverse waitForProcess allHandles
   return ()
+
+isStoreConfig :: NodeConfig -> Bool
+isStoreConfig config = "store" `Data.Text.isPrefixOf` name || "api-store" `Data.Text.isPrefixOf` name where
+  name = nodeName config
 
 getElasticsearchPort :: NodeConfigs -> IO Text
 getElasticsearchPort configs = case getOptElasticsearchPort configs of
@@ -102,7 +110,7 @@ tryWaitForElasticsearch :: [ProcessHandle] -> Text -> IO ()
 tryWaitForElasticsearch handles esPort = catch (waitForElasticsearch esPort) (\e -> do
   let err = show (e :: SomeException)
   mpids <- traverse getPid handles
-  let pids = map fromJust $ filter isJust mpids
+  let pids = catMaybes mpids
   traverse (kill9 . show) pids
   throw e
   )
@@ -113,7 +121,6 @@ waitForElasticsearch esPort = recoverAll (R.constantDelay 1000000 <> R.limitRetr
           void $ N.get ("http://localhost:" <> unpack esPort)
 
 startNodes :: T.FilePath -> NodeConfigs -> IO [ProcessHandle]
-startNodes baseDir [] = return []
 startNodes baseDir configs = do
   _ <- traverse (editVmOptionsFile baseDir) configs
   traverse (shellReturnHandle . configToStartCmd baseDir) configs
@@ -126,6 +133,9 @@ editVmOptionsFile baseDir nodeConfig = go fileLocation (debugOption nodeConfig) 
 
   fileLocation :: T.FilePath
   fileLocation = fromText $ format (fp%"/"%s%"/analytics-processor/conf/analytics-processor.vmoptions") baseDir (nodeName nodeConfig)
+
+--editVersionFile :: T.FilePath -> IO Text
+--editVersionFile baseDir nodeConfig =
 
 killHandles :: [PHANDLE] -> Signals.Handler
 killHandles = Catch . void . traverse (kill9 . show)
