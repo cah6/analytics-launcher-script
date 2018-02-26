@@ -7,7 +7,7 @@ import Data.Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString.Lazy as B
 import Data.Maybe
-import Data.Text (unpack, unwords, isPrefixOf, stripPrefix)
+import Data.Text (unpack, pack, unwords, isPrefixOf, stripPrefix, replace)
 import Filesystem.Path.CurrentOS (encodeString, decodeString)
 
 import Debug.Trace
@@ -93,6 +93,14 @@ isStoreConfig :: NodeConfig -> Bool
 isStoreConfig config = "store" `Data.Text.isPrefixOf` name || "api-store" `Data.Text.isPrefixOf` name where
   name = nodeName config
 
+vmOptionsFile :: T.FilePath -> NodeConfig -> T.FilePath
+vmOptionsFile baseDir nodeConfig =
+  if isStoreConfig nodeConfig
+    then fromText $ awaitingName "analytics-sidecar"
+    else fromText $ awaitingName "analytics-processor"
+  where
+    awaitingName = format (fp % "/" %s % "/analytics-processor/conf/" %s % ".vmoptions") baseDir (nodeName nodeConfig)
+
 getElasticsearchPort :: NodeConfigs -> IO Text
 getElasticsearchPort configs = case getOptElasticsearchPort configs of
     Nothing -> die "ad.es.node.http.port wasn't set in elasticsearch property overrides"
@@ -123,19 +131,25 @@ waitForElasticsearch esPort = recoverAll (R.constantDelay 1000000 <> R.limitRetr
 startNodes :: T.FilePath -> NodeConfigs -> IO [ProcessHandle]
 startNodes baseDir configs = do
   _ <- traverse (editVmOptionsFile baseDir) configs
+  _ <- traverse (editVersionFile baseDir) configs
   traverse (shellReturnHandle . configToStartCmd baseDir) configs
 
 editVmOptionsFile :: T.FilePath -> NodeConfig -> IO ()
-editVmOptionsFile baseDir nodeConfig = go fileLocation (debugOption nodeConfig) where
+editVmOptionsFile baseDir nodeConfig = go (vmOptionsFile baseDir nodeConfig) (debugOption nodeConfig) where
   go :: T.FilePath -> Maybe DebugOption -> IO ()
   go _ Nothing = return ()
   go vmOptionsFile (Just vmoption) = append vmOptionsFile (fromString $ unpack vmoption)
 
-  fileLocation :: T.FilePath
-  fileLocation = fromText $ format (fp%"/"%s%"/analytics-processor/conf/analytics-processor.vmoptions") baseDir (nodeName nodeConfig)
+editVersionFile :: T.FilePath -> NodeConfig -> IO ()
+editVersionFile baseDir config = editVersion versionFp (version config) where
+  versionFp = fromText $ format (fp%"/"%s%"/analytics-processor/version.txt") baseDir (nodeName config)
 
---editVersionFile :: T.FilePath -> IO Text
---editVersionFile baseDir nodeConfig =
+editVersion :: T.FilePath -> Maybe Version -> IO ()
+editVersion versionFp Nothing = return ()
+editVersion versionFp (Just versionOverride) = do
+  versionFile <- readTextFile versionFp
+  let newVersionFile = replace "0.0.0.0" versionOverride versionFile
+  writeTextFile versionFp newVersionFile
 
 killHandles :: [PHANDLE] -> Signals.Handler
 killHandles = Catch . void . traverse (kill9 . show)
@@ -187,6 +201,7 @@ data NodeConfig = NodeConfig {
     nodeName :: NodeName
   , propertyOverrides :: [PropertyOverride]
   , debugOption :: Maybe DebugOption
+  , version :: Maybe Version
   } deriving (Generic, Show)
 
 instance ToJSON NodeConfig
@@ -195,3 +210,4 @@ instance FromJSON NodeConfig
 type NodeName = Text
 type PropertyOverride = Text
 type DebugOption = Text
+type Version = Text
