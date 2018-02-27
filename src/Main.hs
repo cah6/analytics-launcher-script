@@ -82,10 +82,8 @@ startAllNodes baseDir config = do
   nonEsNodeHandles <- startNodes baseDir (tail config)
   -- install handlers and wait for all
   let allHandles = esNodeHandles ++ nonEsNodeHandles
-  mpids <- traverse getPid allHandles
-  let pids = catMaybes mpids
-  _ <- installHandler sigINT (killHandles pids) Nothing
-  _ <- installHandler sigTERM (killHandles pids) Nothing
+  _ <- installHandler sigINT (killHandles allHandles) Nothing
+  _ <- installHandler sigTERM (killHandles allHandles) Nothing
   void $ traverse waitForProcess allHandles
   return ()
 
@@ -117,9 +115,7 @@ getOptElasticsearchPort configs = do
 tryWaitForElasticsearch :: [ProcessHandle] -> Text -> IO ()
 tryWaitForElasticsearch handles esPort = catch (waitForElasticsearch esPort) (\e -> do
   let err = show (e :: SomeException)
-  mpids <- traverse getPid handles
-  let pids = catMaybes mpids
-  traverse (kill9 . show) pids
+  traverse kill9 handles
   throw e
   )
 
@@ -151,11 +147,21 @@ editVersion versionFp (Just versionOverride) = do
   let newVersionFile = replace "0.0.0.0" versionOverride versionFile
   writeTextFile versionFp newVersionFile
 
-killHandles :: [PHANDLE] -> Signals.Handler
-killHandles = Catch . void . traverse (kill9 . show)
+killHandles :: [ProcessHandle] -> Signals.Handler
+killHandles = Catch . void . traverse kill9
 
-kill9 :: String -> IO ()
-kill9 pid = void $ trace ("Killing process with id: " ++ pid) $ shellNoArgs (fromString ("kill -9 " ++ pid))
+kill9 :: ProcessHandle -> IO ()
+kill9 handle = void $ forkIO $ do
+  mpid <- getPid handle
+  doSoftKill <- case mpid of
+    Nothing -> return ()
+    Just a  -> void $ trace ("Soft killing process with id: " ++ show a) $ shellNoArgs (fromString ("kill " ++ show a))
+  sleep 5.0
+  mpid2 <- getPid handle
+  doHardKill <- case mpid2 of
+    Nothing -> return ()
+    Just a  -> void $ trace ("Hard killing process with id: " ++ show a) $ shellNoArgs (fromString ("kill -9 " ++ show a))
+  return ()
 
 configToStartCmd :: T.FilePath -> NodeConfig -> Text
 configToStartCmd baseDir nodeConfig = finalCmd where
