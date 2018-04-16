@@ -62,5 +62,13 @@
       "ad.dw.http.adminPort=9031",
       "ad.admin.cluster.unicast.hosts.fallback=localhost:9300"
     ]
+  },
+  {
+    "nodeName": "metric-processor",
+    "propertyOverrides": [
+      "ad.dw.http.port=9020",
+      "ad.dw.http.adminPort=9021",
+      "ad.metric.processor.stream.applicationServer=localhost:9020"
+    ]
   }
 ]

@@ -155,7 +155,7 @@ kill9 handle = void $ forkIO $ do
   mpid <- getPid handle
   doSoftKill <- case mpid of
     Nothing -> return ()
-    Just a  -> void $ trace ("Soft killing process with id: " ++ show a) $ shellNoArgs (fromString ("kill " ++ show a))
+    Just a  -> void $ trace ("Soft killing process with id: [" ++ show a ++ "], will hard kill in 5 seconds.") $ shellNoArgs (fromString ("kill " ++ show a))
   sleep 5.0
   mpid2 <- getPid handle
   doHardKill <- case mpid2 of
