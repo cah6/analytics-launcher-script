@@ -33,11 +33,8 @@ import System.Posix.Signals as Signals
 
 import GHC.Generics
 
--- todo / ideas list
+-- TODO / ideas list
 -- use reader to pass around config I get from the start
--- partition by nodes in tier store-* instead of getting list head and tail
--- call sigterm, wait for a bit, then kill 9
--- edit version file to user input version
 -- look for "Stopping " in logs, stop startup if it happens
 
 main = do
@@ -54,7 +51,7 @@ main = do
   sh $ parallel $ unzipCmds (map nodeName config)
   -- run all the nodes
   _ <- startAllNodes baseDir config
-  -- should not hit this until you ctrl+c
+  -- should not hit this until you ctrl+c and all nodes stop
   putStrLn "End of the script!"
 
 makeNodeConfig :: T.FilePath -> T.FilePath -> IO NodeConfigs
@@ -72,6 +69,7 @@ unzipCmds = map (shellsNoArgs . (<>) "unzip analytics-processor.zip -d ")
 
 startAllNodes :: T.FilePath -> NodeConfigs -> IO ()
 startAllNodes baseDir config = do
+  hasCleanupStarted <- newEmptyMVar
   let (esNodes, otherNodes) = partition isStoreConfig config
   esNodeHandles <- startNodes baseDir [head config]
   -- wait for ES
@@ -82,10 +80,23 @@ startAllNodes baseDir config = do
   nonEsNodeHandles <- startNodes baseDir (tail config)
   -- install handlers and wait for all
   let allHandles = esNodeHandles ++ nonEsNodeHandles
-  _ <- installHandler sigINT (killHandles allHandles) Nothing
-  _ <- installHandler sigTERM (killHandles allHandles) Nothing
-  void $ traverse waitForProcess allHandles
+  _ <- installHandler sigINT (killHandles hasCleanupStarted allHandles) Nothing
+  _ <- installHandler sigTERM (killHandles hasCleanupStarted allHandles) Nothing
+  void $ traverse (waitOrCleanupAll hasCleanupStarted allHandles) allHandles
   return ()
+
+waitOrCleanupAll :: MVar () -> [ProcessHandle] -> ProcessHandle -> IO ()
+waitOrCleanupAll cleanupMVar allHandles handle = do
+  pid <- getPid handle
+  case pid of
+    Nothing -> trace "Killing all handles since an unknown one already ended its process..." (killAll9 cleanupMVar allHandles)
+    Just a  -> do
+      print $ "Waiting for process with pid: " <> show pid
+      exitCode <- waitForProcess handle
+      firstTimeCleanup <- isEmptyMVar cleanupMVar
+      case exitCode of
+          ExitSuccess   -> trace "Something stopped with success!!!" $ return ()
+          ExitFailure i -> when firstTimeCleanup $ trace ("Killing all handles since " <> show pid <> " stopped with " <> show i) (killAll9 cleanupMVar allHandles)
 
 isStoreConfig :: NodeConfig -> Bool
 isStoreConfig config = "store" `Data.Text.isPrefixOf` name || "api-store" `Data.Text.isPrefixOf` name where
@@ -147,15 +158,23 @@ editVersion versionFp (Just versionOverride) = do
   let newVersionFile = replace "0.0.0.0" versionOverride versionFile
   writeTextFile versionFp newVersionFile
 
-killHandles :: [ProcessHandle] -> Signals.Handler
-killHandles = Catch . void . traverse kill9
+killHandles :: MVar () -> [ProcessHandle] -> Signals.Handler
+killHandles hasCleanupStarted handles = Catch $ killAll9 hasCleanupStarted handles
+
+killAll9 :: MVar () -> [ProcessHandle] -> IO ()
+killAll9 cleanupMvar handles = do
+  cleanupHadNotStarted <- tryPutMVar cleanupMvar ()
+  if cleanupHadNotStarted
+    then void $ traverse kill9 handles
+    else return ()
 
 kill9 :: ProcessHandle -> IO ()
 kill9 handle = void $ forkIO $ do
   mpid <- getPid handle
   doSoftKill <- case mpid of
     Nothing -> return ()
-    Just a  -> void $ trace ("Soft killing process with id: [" ++ show a ++ "], will hard kill in 5 seconds.") $ shellNoArgs (fromString ("kill " ++ show a))
+    Just a  -> void $ trace ("Soft killing process with id: [" ++ show a ++ "], will hard kill in 5 seconds if it's still alive") $
+      shellNoArgs (fromString ("kill " ++ show a))
   sleep 5.0
   mpid2 <- getPid handle
   doHardKill <- case mpid2 of
