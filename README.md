@@ -21,4 +21,5 @@ Should be good to go, once it has downloaded everything you can run the script w
 - `./src/Main.hs -p plans/default-on-prem.json` for on-prem mode (default is a single node)
 - or use these as guidelines for making your own deployment strategy. 
 
-Once it's up, stop it with ctrl-c. Also note that you need `ANALYTICS_HOME` set before running this.
+Once it's up, stop it with ctrl-c. Also note that you need `ANALYTICS_HOME` set before running this. Also, I've started
+adding some more advanced configurations, so use `./src/Main.hs -h` to see all arguments.
