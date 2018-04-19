@@ -68,7 +68,10 @@
     "propertyOverrides": [
       "ad.dw.http.port=9020",
       "ad.dw.http.adminPort=9021",
-      "ad.metric.processor.stream.applicationServer=localhost:9020"
+      "ad.metric.processor.stream.applicationServer=localhost:9020",
+      "ad.eventType.client.enabled=true",
+      "ad.eventType.http.host=localhost",
+      "ad.eventType.http.port=9080"
     ]
   }
 ]
