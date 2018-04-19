@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 
+import Prelude hiding (mapM, mapM_)
 import Data.Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString.Lazy as B
@@ -24,6 +25,7 @@ import Control.Concurrent
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, tryTakeMVar)
 import Control.Monad (void)
 import Control.Monad.Managed
+import Control.Monad.Parallel (mapM, mapM_)
 
 import Control.Exception
 
@@ -35,12 +37,11 @@ import GHC.Generics
 
 -- TODO / ideas list
 -- use reader to pass around config I get from the start
--- look for "Stopping " in logs, stop startup if it happens
 
 main = do
-  planPath <- T.options "Script to start up SaaS-like analytics cluster." optionsParser
+  args <- T.options "Script to start up SaaS-like analytics cluster." optionsParser
   currDir <- pwd
-  config <- makeNodeConfig currDir planPath
+  config <- makeNodeConfig currDir (planPath args)
   print config
   home <- getPropOrDie "ANALYTICS_HOME" "Set it to be something like /Users/firstname.lastname/appdynamics/analytics-codebase/analytics"
   cd home
@@ -50,7 +51,7 @@ main = do
   -- unzip all nodes and join
   sh $ parallel $ unzipCmds (map nodeName config)
   -- run all the nodes
-  _ <- startAllNodes baseDir config
+  _ <- startAllNodes (not (doNotKillAll args)) baseDir config
   -- should not hit this until you ctrl+c and all nodes stop
   putStrLn "End of the script!"
 
@@ -61,14 +62,22 @@ makeNodeConfig basePath relativePath = do
     Left err  -> die $ fromString $ "Could not read input file into plan object: " <> err
     Right val -> return val
 
-optionsParser :: T.Parser T.FilePath
-optionsParser = optPath "plan" 'p' "The cluster json plan to use."
+optionsParser :: T.Parser ProgramArgs
+optionsParser = ProgramArgs
+  <$> optPath "plan" 'p' "Location of json file that defines which nodes are started."
+  <*> switch "no-kill-all" 'n' "Set to turn off default behavior of killing all nodes if one dies."
+
+data ProgramArgs = ProgramArgs {
+    planPath      :: T.FilePath
+  , doNotKillAll  :: Bool
+  }
+
 
 unzipCmds :: [Text] -> [IO ()]
 unzipCmds = map (shellsNoArgs . (<>) "unzip analytics-processor.zip -d ")
 
-startAllNodes :: T.FilePath -> NodeConfigs -> IO ()
-startAllNodes baseDir config = do
+startAllNodes :: Bool -> T.FilePath -> NodeConfigs -> IO ()
+startAllNodes shouldKillAll baseDir config = do
   hasCleanupStarted <- newEmptyMVar
   let (esNodes, otherNodes) = partition isStoreConfig config
   esNodeHandles <- startNodes baseDir [head config]
@@ -82,21 +91,24 @@ startAllNodes baseDir config = do
   let allHandles = esNodeHandles ++ nonEsNodeHandles
   _ <- installHandler sigINT (killHandles hasCleanupStarted allHandles) Nothing
   _ <- installHandler sigTERM (killHandles hasCleanupStarted allHandles) Nothing
-  void $ traverse (waitOrCleanupAll hasCleanupStarted allHandles) allHandles
+  mapM_ (waitOrCleanupAll shouldKillAll hasCleanupStarted allHandles) allHandles
   return ()
 
-waitOrCleanupAll :: MVar () -> [ProcessHandle] -> ProcessHandle -> IO ()
-waitOrCleanupAll cleanupMVar allHandles handle = do
-  pid <- getPid handle
-  case pid of
-    Nothing -> trace "Killing all handles since an unknown one already ended its process..." (killAll9 cleanupMVar allHandles)
-    Just a  -> do
-      print $ "Waiting for process with pid: " <> show pid
+waitOrCleanupAll :: Bool -> MVar () -> [ProcessHandle] -> ProcessHandle -> IO ()
+waitOrCleanupAll shouldKillAll cleanupMVar allHandles handle = do
+  mpid <- getPid handle
+  case mpid of
+    Nothing   -> when shouldKillAll $ killAll9 cleanupMVar allHandles
+    Just pid  -> do
       exitCode <- waitForProcess handle
       firstTimeCleanup <- isEmptyMVar cleanupMVar
       case exitCode of
-          ExitSuccess   -> trace "Something stopped with success!!!" $ return ()
-          ExitFailure i -> when firstTimeCleanup $ trace ("Killing all handles since " <> show pid <> " stopped with " <> show i) (killAll9 cleanupMVar allHandles)
+        ExitSuccess -> return ()
+        ExitFailure code ->
+          when (firstTimeCleanup && shouldKillAll) $
+          trace
+            ("Killing all handles since " <> show pid <> " stopped with " <> show code)
+            (killAll9 cleanupMVar allHandles)
 
 isStoreConfig :: NodeConfig -> Bool
 isStoreConfig config = "store" `Data.Text.isPrefixOf` name || "api-store" `Data.Text.isPrefixOf` name where
@@ -164,9 +176,7 @@ killHandles hasCleanupStarted handles = Catch $ killAll9 hasCleanupStarted handl
 killAll9 :: MVar () -> [ProcessHandle] -> IO ()
 killAll9 cleanupMvar handles = do
   cleanupHadNotStarted <- tryPutMVar cleanupMvar ()
-  if cleanupHadNotStarted
-    then void $ traverse kill9 handles
-    else return ()
+  when cleanupHadNotStarted (void $ traverse kill9 handles)
 
 kill9 :: ProcessHandle -> IO ()
 kill9 handle = void $ forkIO $ do
