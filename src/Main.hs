@@ -97,20 +97,16 @@ startAllNodes shouldKillAll baseDir config = do
   return ()
 
 waitOrCleanupAll :: Bool -> MVar () -> [ProcessHandle] -> ProcessHandle -> IO ()
-waitOrCleanupAll shouldKillAll cleanupMVar allHandles thisHandle = do
-  mpid <- getPid thisHandle
-  case mpid of
-    Nothing   -> when shouldKillAll $ tryKillAll cleanupMVar allHandles
-    Just pid  -> do
-      exitCode <- waitForProcess thisHandle
-      firstTimeCleanup <- isEmptyMVar cleanupMVar
-      case exitCode of
-        ExitSuccess -> return ()
-        ExitFailure code ->
-          when (firstTimeCleanup && shouldKillAll) $
-          trace
-            ("Killing all handles since " <> show pid <> " stopped with " <> show code)
-            (tryKillAll cleanupMVar allHandles)
+waitOrCleanupAll shouldKillAll cleanupMVar allHandles thisHandle = getPid thisHandle >>= \case
+  Nothing   -> when shouldKillAll $ tryKillAll cleanupMVar allHandles
+  Just pid  -> do
+    firstTimeCleanup <- isEmptyMVar cleanupMVar
+    waitForProcess thisHandle >>= \case
+      ExitSuccess -> return ()
+      ExitFailure code ->
+        when (firstTimeCleanup && shouldKillAll) $ trace
+          ("Killing all handles since " <> show pid <> " stopped with " <> show code)
+          (tryKillAll cleanupMVar allHandles)
 
 isStoreConfig :: NodeConfig -> Bool
 isStoreConfig config = "store" `Data.Text.isPrefixOf` name || "api-store" `Data.Text.isPrefixOf` name where
@@ -119,10 +115,10 @@ isStoreConfig config = "store" `Data.Text.isPrefixOf` name || "api-store" `Data.
 getVmOptionsFile :: T.FilePath -> NodeConfig -> T.FilePath
 getVmOptionsFile baseDir nodeConfig =
   if isStoreConfig nodeConfig
-    then fromText $ awaitingName "analytics-sidecar"
-    else fromText $ awaitingName "analytics-processor"
+    then fromText $ vmOptionsFileFormat "analytics-sidecar"
+    else fromText $ vmOptionsFileFormat "analytics-processor"
   where
-    awaitingName = format (fp % "/" %s % "/analytics-processor/conf/" %s % ".vmoptions") baseDir (nodeName nodeConfig)
+    vmOptionsFileFormat = format (fp % "/" %s % "/analytics-processor/conf/" %s % ".vmoptions") baseDir (nodeName nodeConfig)
 
 getElasticsearchPort :: NodeConfigs -> IO Text
 getElasticsearchPort configs = case getOptElasticsearchPort configs of
@@ -184,14 +180,12 @@ kill9All phs = void $ traverse kill9 phs
 
 kill9 :: ProcessHandle -> IO ()
 kill9 ph = void $ forkIO $ do
-  mpid <- getPid ph
-  _ <- case mpid of
+  _ <- getPid ph >>= \case
     Nothing -> return ()
     Just a  -> void $ trace ("Soft killing process with id: [" ++ show a ++ "], will hard kill in 5 seconds if it's still alive") $
       shellNoArgs (fromString ("kill " ++ show a))
   sleep 5.0
-  mpid2 <- getPid ph
-  _ <- case mpid2 of
+  _ <- getPid ph >>= \case
     Nothing -> return ()
     Just a  -> void $ trace ("Hard killing process with id: " ++ show a) $ shellNoArgs (fromString ("kill -9 " ++ show a))
   return ()
@@ -215,10 +209,9 @@ shellReturnHandle cmd = do
   return phandle
 
 getPid :: ProcessHandle -> IO (Maybe PHANDLE)
-getPid ph = withProcessHandle ph go where
-  go ph_ = case ph_ of
-              OpenHandle pid  -> return $ Just pid
-              _               -> return Nothing
+getPid ph = withProcessHandle ph $ \case
+  OpenHandle pid  -> return $ Just pid
+  _               -> return Nothing
 
 -- a few basic util methods that helped me
 
@@ -229,11 +222,9 @@ shellsNoArgs :: Text -> IO ()
 shellsNoArgs cmd = shells cmd empty
 
 getPropOrDie :: Text -> Text -> IO T.FilePath
-getPropOrDie prop message = do
-  homeDir <- need prop
-  case homeDir of
-    Nothing -> die (prop <> " was not set. " <> message)
-    Just a  -> return $ fromText a
+getPropOrDie prop message = need prop >>= \case
+  Nothing -> die (prop <> " was not set. " <> message)
+  Just a  -> return $ fromText a
 
 type NodeConfigs = [NodeConfig]
 data NodeConfig = NodeConfig {
