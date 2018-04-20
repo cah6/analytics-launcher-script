@@ -1,31 +1,30 @@
 #!/usr/bin/env stack
 -- stack --install-ghc runghc --package turtle
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveGeneric #-}
 
-import Prelude hiding (mapM, mapM_)
+import Prelude hiding (mapM_)
 import Data.Aeson
-import Data.Aeson.Types
+import Data.Aeson.Types()
 import qualified Data.ByteString.Lazy as B
-import Data.Maybe
-import Data.Text (unpack, pack, unwords, isPrefixOf, stripPrefix, replace)
-import Filesystem.Path.CurrentOS (encodeString, decodeString)
+import Data.Maybe()
+import Data.Text (unpack, unwords, isPrefixOf, stripPrefix, replace)
+import Filesystem.Path.CurrentOS (encodeString)
 
 import Debug.Trace
 import Turtle as T
-import Turtle.Format
+import Turtle.Format()
 
 import Data.List
-import Data.ConfigFile
+import Data.ConfigFile()
 
 import Network.Wreq as N
 import Control.Retry as R
 
 import Control.Concurrent
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, tryTakeMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar)
 import Control.Monad (void)
-import Control.Monad.Managed
-import Control.Monad.Parallel (mapM, mapM_)
+import Control.Monad.Managed()
+import Control.Monad.Parallel (mapM_)
+import Control.Monad.Trans.Reader (ReaderT)
 
 import Control.Exception
 
@@ -38,13 +37,16 @@ import GHC.Generics
 -- TODO / ideas list
 -- use reader to pass around config I get from the start
 
+type Application m = ReaderT ProgramArgs m ()
+
+main :: IO ()
 main = do
   args <- T.options "Script to start up SaaS-like analytics cluster." optionsParser
   currDir <- pwd
   config <- makeNodeConfig currDir (planPath args)
   print config
-  home <- getPropOrDie "ANALYTICS_HOME" "Set it to be something like /Users/firstname.lastname/appdynamics/analytics-codebase/analytics"
-  cd home
+  homeDir <- getPropOrDie "ANALYTICS_HOME" "Set it to be something like /Users/firstname.lastname/appdynamics/analytics-codebase/analytics"
+  cd homeDir
   shellsNoArgs "./gradlew --build-cache -p analytics-processor clean distZip"
   cd "analytics-processor/build/distributions"
   baseDir <- pwd
@@ -59,8 +61,8 @@ makeNodeConfig :: T.FilePath -> T.FilePath -> IO NodeConfigs
 makeNodeConfig basePath relativePath = do
   planInBytes <- B.readFile (encodeString $ basePath <> relativePath)
   case eitherDecode planInBytes of
-    Left err  -> die $ fromString $ "Could not read input file into plan object: " <> err
-    Right val -> return val
+    Left readErr  -> die $ fromString $ "Could not read input file into plan object: " <> readErr
+    Right val     -> return val
 
 optionsParser :: T.Parser ProgramArgs
 optionsParser = ProgramArgs
@@ -80,13 +82,13 @@ startAllNodes :: Bool -> T.FilePath -> NodeConfigs -> IO ()
 startAllNodes shouldKillAll baseDir config = do
   hasCleanupStarted <- newEmptyMVar
   let (esNodes, otherNodes) = partition isStoreConfig config
-  esNodeHandles <- startNodes baseDir [head config]
+  esNodeHandles <- startNodes baseDir esNodes
   -- wait for ES
   esPort <- getElasticsearchPort config
   tryWaitForElasticsearch esNodeHandles esPort
   putStrLn "Elasticsearch is up now!"
   -- bring up others
-  nonEsNodeHandles <- startNodes baseDir (tail config)
+  nonEsNodeHandles <- startNodes baseDir otherNodes
   -- install handlers and wait for all
   let allHandles = esNodeHandles ++ nonEsNodeHandles
   _ <- installHandler sigINT (killHandles hasCleanupStarted allHandles) Nothing
@@ -95,12 +97,12 @@ startAllNodes shouldKillAll baseDir config = do
   return ()
 
 waitOrCleanupAll :: Bool -> MVar () -> [ProcessHandle] -> ProcessHandle -> IO ()
-waitOrCleanupAll shouldKillAll cleanupMVar allHandles handle = do
-  mpid <- getPid handle
+waitOrCleanupAll shouldKillAll cleanupMVar allHandles thisHandle = do
+  mpid <- getPid thisHandle
   case mpid of
-    Nothing   -> when shouldKillAll $ killAll9 cleanupMVar allHandles
+    Nothing   -> when shouldKillAll $ tryKillAll cleanupMVar allHandles
     Just pid  -> do
-      exitCode <- waitForProcess handle
+      exitCode <- waitForProcess thisHandle
       firstTimeCleanup <- isEmptyMVar cleanupMVar
       case exitCode of
         ExitSuccess -> return ()
@@ -108,14 +110,14 @@ waitOrCleanupAll shouldKillAll cleanupMVar allHandles handle = do
           when (firstTimeCleanup && shouldKillAll) $
           trace
             ("Killing all handles since " <> show pid <> " stopped with " <> show code)
-            (killAll9 cleanupMVar allHandles)
+            (tryKillAll cleanupMVar allHandles)
 
 isStoreConfig :: NodeConfig -> Bool
 isStoreConfig config = "store" `Data.Text.isPrefixOf` name || "api-store" `Data.Text.isPrefixOf` name where
   name = nodeName config
 
-vmOptionsFile :: T.FilePath -> NodeConfig -> T.FilePath
-vmOptionsFile baseDir nodeConfig =
+getVmOptionsFile :: T.FilePath -> NodeConfig -> T.FilePath
+getVmOptionsFile baseDir nodeConfig =
   if isStoreConfig nodeConfig
     then fromText $ awaitingName "analytics-sidecar"
     else fromText $ awaitingName "analytics-processor"
@@ -136,11 +138,10 @@ getOptElasticsearchPort configs = do
   Data.Text.stripPrefix portPrefix portProp
 
 tryWaitForElasticsearch :: [ProcessHandle] -> Text -> IO ()
-tryWaitForElasticsearch handles esPort = catch (waitForElasticsearch esPort) (\e -> do
-  let err = show (e :: SomeException)
-  traverse kill9 handles
-  throw e
-  )
+tryWaitForElasticsearch handles esPort = catch (waitForElasticsearch esPort) (handleError handles)
+
+handleError :: [ProcessHandle] -> SomeException -> IO ()
+handleError handles someE = kill9All handles >>= throw someE
 
 waitForElasticsearch :: Text -> IO ()
 waitForElasticsearch esPort = recoverAll (R.constantDelay 1000000 <> R.limitRetries 60) go where
@@ -154,7 +155,7 @@ startNodes baseDir configs = do
   traverse (shellReturnHandle . configToStartCmd baseDir) configs
 
 editVmOptionsFile :: T.FilePath -> NodeConfig -> IO ()
-editVmOptionsFile baseDir nodeConfig = go (vmOptionsFile baseDir nodeConfig) (debugOption nodeConfig) where
+editVmOptionsFile baseDir nodeConfig = go (getVmOptionsFile baseDir nodeConfig) (debugOption nodeConfig) where
   go :: T.FilePath -> Maybe DebugOption -> IO ()
   go _ Nothing = return ()
   go vmOptionsFile (Just vmoption) = append vmOptionsFile (fromString $ unpack vmoption)
@@ -164,30 +165,33 @@ editVersionFile baseDir config = editVersion versionFp (version config) where
   versionFp = fromText $ format (fp%"/"%s%"/analytics-processor/version.txt") baseDir (nodeName config)
 
 editVersion :: T.FilePath -> Maybe Version -> IO ()
-editVersion versionFp Nothing = return ()
+editVersion _ Nothing = return ()
 editVersion versionFp (Just versionOverride) = do
   versionFile <- readTextFile versionFp
   let newVersionFile = replace "0.0.0.0" versionOverride versionFile
   writeTextFile versionFp newVersionFile
 
 killHandles :: MVar () -> [ProcessHandle] -> Signals.Handler
-killHandles hasCleanupStarted handles = Catch $ killAll9 hasCleanupStarted handles
+killHandles hasCleanupStarted handles = Catch $ tryKillAll hasCleanupStarted handles
 
-killAll9 :: MVar () -> [ProcessHandle] -> IO ()
-killAll9 cleanupMvar handles = do
+tryKillAll :: MVar () -> [ProcessHandle] -> IO ()
+tryKillAll cleanupMvar handles = do
   cleanupHadNotStarted <- tryPutMVar cleanupMvar ()
-  when cleanupHadNotStarted (void $ traverse kill9 handles)
+  when cleanupHadNotStarted (kill9All handles)
+
+kill9All :: [ProcessHandle] -> IO ()
+kill9All phs = void $ traverse kill9 phs
 
 kill9 :: ProcessHandle -> IO ()
-kill9 handle = void $ forkIO $ do
-  mpid <- getPid handle
-  doSoftKill <- case mpid of
+kill9 ph = void $ forkIO $ do
+  mpid <- getPid ph
+  _ <- case mpid of
     Nothing -> return ()
     Just a  -> void $ trace ("Soft killing process with id: [" ++ show a ++ "], will hard kill in 5 seconds if it's still alive") $
       shellNoArgs (fromString ("kill " ++ show a))
   sleep 5.0
-  mpid2 <- getPid handle
-  doHardKill <- case mpid2 of
+  mpid2 <- getPid ph
+  _ <- case mpid2 of
     Nothing -> return ()
     Just a  -> void $ trace ("Hard killing process with id: " ++ show a) $ shellNoArgs (fromString ("kill -9 " ++ show a))
   return ()
@@ -203,7 +207,7 @@ configToStartCmd baseDir nodeConfig = finalCmd where
   finalCmd = format ("sh "%s%" start -p "%s%" "%s) shFile propFile extraProps
 
 getPropertyOverrideString :: NodeConfig -> Text
-getPropertyOverrideString nodeConfig = Data.Text.unwords $ map (\s -> "-D " <> s) (propertyOverrides nodeConfig)
+getPropertyOverrideString nodeConfig = Data.Text.unwords $ map (\prop -> "-D " <> prop) (propertyOverrides nodeConfig)
 
 shellReturnHandle :: Text -> IO ProcessHandle
 shellReturnHandle cmd = do
@@ -213,8 +217,8 @@ shellReturnHandle cmd = do
 getPid :: ProcessHandle -> IO (Maybe PHANDLE)
 getPid ph = withProcessHandle ph go where
   go ph_ = case ph_ of
-              OpenHandle x   -> return $ Just x
-              ClosedHandle _ -> return Nothing
+              OpenHandle pid  -> return $ Just pid
+              _               -> return Nothing
 
 -- a few basic util methods that helped me
 
