@@ -1,5 +1,6 @@
 #!/usr/bin/env stack
 -- stack --install-ghc runghc --package turtle
+{-# LANGUAGE LambdaCase, DeriveGeneric, OverloadedStrings #-}
 
 import Prelude hiding (mapM_)
 import Data.Aeson
@@ -24,7 +25,6 @@ import Control.Concurrent.MVar (MVar, newEmptyMVar)
 import Control.Monad (void)
 import Control.Monad.Managed()
 import Control.Monad.Parallel (mapM_)
-import Control.Monad.Trans.Reader (ReaderT)
 
 import Control.Exception
 
@@ -37,7 +37,7 @@ import GHC.Generics
 -- TODO / ideas list
 -- use reader to pass around config I get from the start
 
-type Application m = ReaderT ProgramArgs m ()
+-- type Application m = ReaderT ProgramArgs m ()
 
 main :: IO ()
 main = do
@@ -205,8 +205,8 @@ getPropertyOverrideString nodeConfig = Data.Text.unwords $ map (\prop -> "-D " <
 
 shellReturnHandle :: Text -> IO ProcessHandle
 shellReturnHandle cmd = do
-  (_, _, _, phandle) <- createProcess (P.shell (unpack cmd))
-  return phandle
+  (_, _, _, ph) <- createProcess (P.shell (unpack cmd))
+  return ph
 
 getPid :: ProcessHandle -> IO (Maybe PHANDLE)
 getPid ph = withProcessHandle ph $ \case
