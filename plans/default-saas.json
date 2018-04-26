@@ -27,7 +27,9 @@
       "ad.es.metadata.entities.replicas=0",
       "ad.dw.http.port=9080",
       "ad.dw.http.adminPort=9081",
-      "ad.jf.http.port=9030"
+      "ad.jf.http.port=9030",
+      "ad.jvm.heap.min=256g",
+      "ad.jvm.heap.max=256g"
       ]
   },
   {
@@ -37,7 +39,9 @@
       "ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
       "ad.kafka.replication.factor=1",
       "ad.dw.http.port=9070",
-      "ad.dw.http.adminPort=9071"
+      "ad.dw.http.adminPort=9071",
+      "ad.jvm.heap.min=256g",
+      "ad.jvm.heap.max=256g"
     ]
   },
   {
@@ -45,14 +49,18 @@
     "propertyOverrides": [
       "ad.kafka.replication.factor=1",
       "ad.dw.http.port=9060",
-      "ad.dw.http.adminPort=9061"
+      "ad.dw.http.adminPort=9061",
+      "ad.jvm.heap.min=256g",
+      "ad.jvm.heap.max=256g"
     ]
   },
   {
     "nodeName": "zookeeper",
     "propertyOverrides": [
       "ad.dw.http.port=9040",
-      "ad.dw.http.adminPort=9041"
+      "ad.dw.http.adminPort=9041",
+      "ad.jvm.heap.min=128g",
+      "ad.jvm.heap.max=128g"
     ]
   },
   {

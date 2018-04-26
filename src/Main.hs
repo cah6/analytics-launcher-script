@@ -100,8 +100,9 @@ waitOrCleanupAll :: Bool -> MVar () -> [ProcessHandle] -> ProcessHandle -> IO ()
 waitOrCleanupAll shouldKillAll cleanupMVar allHandles thisHandle = getPid thisHandle >>= \case
   Nothing   -> when shouldKillAll $ tryKillAll cleanupMVar allHandles
   Just pid  -> do
+    exitCode <- waitForProcess thisHandle
     firstTimeCleanup <- isEmptyMVar cleanupMVar
-    waitForProcess thisHandle >>= \case
+    case exitCode of
       ExitSuccess -> return ()
       ExitFailure code ->
         when (firstTimeCleanup && shouldKillAll) $ trace
