@@ -5,7 +5,9 @@
       "ad.es.node.minimum_master_nodes=1",
       "ad.dw.http.port=9050",
       "ad.dw.http.adminPort=9051",
-      "ad.es.node.http.port=9400"
+      "ad.es.node.http.port=9400",
+      "ad.jvm.heap.min=128m",
+      "ad.jvm.heap.max=128m"
     ]
   },
   {
@@ -13,7 +15,9 @@
     "propertyOverrides": [
       "ad.dw.http.port=9052",
       "ad.dw.http.adminPort=9053",
-      "ad.es.node.unicast.hosts=localhost:9300"
+      "ad.es.node.unicast.hosts=localhost:9300",
+      "ad.jvm.heap.min=128m",
+      "ad.jvm.heap.max=128m"
     ]
   },
   {
@@ -28,8 +32,8 @@
       "ad.dw.http.port=9080",
       "ad.dw.http.adminPort=9081",
       "ad.jf.http.port=9030",
-      "ad.jvm.heap.min=256g",
-      "ad.jvm.heap.max=256g"
+      "ad.jvm.heap.min=256m",
+      "ad.jvm.heap.max=256m"
       ]
   },
   {
@@ -40,8 +44,8 @@
       "ad.kafka.replication.factor=1",
       "ad.dw.http.port=9070",
       "ad.dw.http.adminPort=9071",
-      "ad.jvm.heap.min=256g",
-      "ad.jvm.heap.max=256g"
+      "ad.jvm.heap.min=256m",
+      "ad.jvm.heap.max=256m"
     ]
   },
   {
@@ -50,8 +54,8 @@
       "ad.kafka.replication.factor=1",
       "ad.dw.http.port=9060",
       "ad.dw.http.adminPort=9061",
-      "ad.jvm.heap.min=256g",
-      "ad.jvm.heap.max=256g"
+      "ad.jvm.heap.min=256m",
+      "ad.jvm.heap.max=256m"
     ]
   },
   {
@@ -59,8 +63,8 @@
     "propertyOverrides": [
       "ad.dw.http.port=9040",
       "ad.dw.http.adminPort=9041",
-      "ad.jvm.heap.min=128g",
-      "ad.jvm.heap.max=128g"
+      "ad.jvm.heap.min=128m",
+      "ad.jvm.heap.max=128m"
     ]
   },
   {
@@ -68,7 +72,9 @@
     "propertyOverrides": [
       "ad.dw.http.port=9030",
       "ad.dw.http.adminPort=9031",
-      "ad.admin.cluster.unicast.hosts.fallback=localhost:9300"
+      "ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
+      "ad.jvm.heap.min=256m",
+      "ad.jvm.heap.max=256m"
     ]
   },
   {
@@ -79,7 +85,9 @@
       "ad.metric.processor.stream.applicationServer=localhost:9020",
       "ad.eventType.client.enabled=true",
       "ad.eventType.http.host=localhost",
-      "ad.eventType.http.port=9080"
+      "ad.eventType.http.port=9080",
+      "ad.jvm.heap.min=256m",
+      "ad.jvm.heap.max=256m"
     ]
   }
 ]
