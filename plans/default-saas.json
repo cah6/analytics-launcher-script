@@ -82,7 +82,10 @@
     "propertyOverrides": [
       "ad.dw.http.port=9020",
       "ad.dw.http.adminPort=9021",
+      "ad.kafka.replication.factor=1",
       "ad.metric.processor.stream.applicationServer=localhost:9020",
+      "ad.metric.processor.stream.numStandByReplicas=0",
+      "ad.metric.processor.stream.numOfStreamThreads=1",
       "ad.eventType.client.enabled=true",
       "ad.eventType.http.host=localhost",
       "ad.eventType.http.port=9080",

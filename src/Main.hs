@@ -10,7 +10,7 @@ import Data.Maybe()
 import Data.Text (unpack, unwords, isPrefixOf, stripPrefix, replace)
 import Filesystem.Path.CurrentOS (encodeString)
 
-import Debug.Trace
+import Debug.Trace ()
 import Turtle as T
 import Turtle.Format()
 
@@ -33,6 +33,7 @@ import System.Process.Internals
 import System.Posix.Signals as Signals
 
 import GHC.Generics
+import Debug.Trace (trace)
 
 -- TODO / ideas list
 -- use reader to pass around config I get from the start
