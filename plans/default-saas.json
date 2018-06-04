@@ -26,6 +26,7 @@
     "propertyOverrides": [
       "ad.admin.cluster.name=appdynamics-analytics-cluster",
       "ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
+      "ad.metric.processor.clients.fallback=appdynamics-analytics-cluster=localhost:9020",
       "ad.es.event.index.replicas=0",
       "ad.es.metadata.replicas=0",
       "ad.es.metadata.entities.replicas=0",
