@@ -24,7 +24,7 @@ Should be good to go, once it has downloaded everything you can run the script w
 Once it's up, stop it with ctrl-c. Also note that you need `ANALYTICS_HOME` set before running this. Also, I've started
 adding some more advanced configurations, so use `./src/Main.hs -h` to see all arguments.
 
-# How-to Do X
+# How-To
 
 ## Start multiple nodes of the same type
 
