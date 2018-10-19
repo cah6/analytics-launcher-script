@@ -1,6 +1,6 @@
 #!/usr/bin/env stack
 -- stack --install-ghc runghc --package turtle
-{-# LANGUAGE LambdaCase, DeriveGeneric, OverloadedStrings #-}
+{-# LANGUAGE LambdaCase, DeriveGeneric, OverloadedStrings, RecordWildCards #-}
 
 import Prelude hiding (mapM_)
 import Data.Aeson
@@ -52,11 +52,16 @@ main = do
   cd "analytics-processor/build/distributions"
   baseDir <- pwd
   -- unzip all nodes and join
-  sh $ parallel $ unzipCmds (map nodeName config)
+  sh $ parallel $ unzipCmds (map mkDirName config)
   -- run all the nodes
   _ <- startAllNodes (not (doNotKillAll args)) baseDir config
   -- should not hit this until you ctrl+c and all nodes stop
   putStrLn "End of the script!"
+
+mkDirName :: NodeConfig -> Text
+mkDirName NodeConfig{..} = case dirName of 
+  Nothing -> nodeName
+  Just a -> a
 
 makeNodeConfig :: T.FilePath -> T.FilePath -> IO NodeConfigs
 makeNodeConfig basePath relativePath = do
@@ -74,7 +79,6 @@ data ProgramArgs = ProgramArgs {
     planPath      :: T.FilePath
   , doNotKillAll  :: Bool
   }
-
 
 unzipCmds :: [Text] -> [IO ()]
 unzipCmds = map (shellsNoArgs . (<>) "unzip analytics-processor.zip -d ")
@@ -120,7 +124,7 @@ getVmOptionsFile baseDir nodeConfig =
     then fromText $ vmOptionsFileFormat "analytics-sidecar"
     else fromText $ vmOptionsFileFormat "analytics-processor"
   where
-    vmOptionsFileFormat = format (fp % "/" %s % "/analytics-processor/conf/" %s % ".vmoptions") baseDir (nodeName nodeConfig)
+    vmOptionsFileFormat = format (fp % "/" %s % "/analytics-processor/conf/" %s % ".vmoptions") baseDir (mkDirName nodeConfig)
 
 getElasticsearchPort :: NodeConfigs -> IO Text
 getElasticsearchPort configs = case getOptElasticsearchPort configs of
@@ -189,18 +193,18 @@ kill9 ph = void $ forkIO $ do
   sleep 5.0
   _ <- getPid ph >>= \case
     Nothing -> return ()
-    Just a  -> void $ trace ("Hard killing process with id: " ++ show a) $ shellNoArgs (fromString ("kill -9 " ++ show a))
+    Just a  -> void $ trace ("Hard killing process with id: [" ++ show a ++ "]") $ shellNoArgs (fromString ("kill -9 " ++ show a))
   return ()
 
 configToStartCmd :: T.FilePath -> NodeConfig -> Text
-configToStartCmd baseDir nodeConfig = finalCmd where
-  confDir = format (s%"/conf") apDir
-  apDir = format (fp%"/"%s%"/analytics-processor") baseDir (nodeName nodeConfig)
+configToStartCmd baseDir nodeConfig = trace (show traceLine) finalCmd where
+  apDir = format (fp%"/"%s%"/analytics-processor") baseDir (mkDirName nodeConfig)
   shFile = format (s%"/bin/analytics-processor.sh") apDir
-  propFile = format (s%"/analytics-"%s%".properties") confDir (nodeName nodeConfig)
+  propFile = format (s%"/conf/analytics-"%s%".properties") apDir (nodeName nodeConfig)
   logPathProp = format ("-D ad.dw.log.path="%s%"/logs") apDir
   extraProps = format (s%" "%s) logPathProp $ getPropertyOverrideString nodeConfig
   finalCmd = format ("sh "%s%" start -p "%s%" "%s) shFile propFile extraProps
+  traceLine = format ("Starting ["%s%"] with command:      "%s) (nodeName nodeConfig) finalCmd
 
 getPropertyOverrideString :: NodeConfig -> Text
 getPropertyOverrideString nodeConfig = Data.Text.unwords $ map (\prop -> "-D " <> prop) (propertyOverrides nodeConfig)
@@ -234,6 +238,7 @@ data NodeConfig = NodeConfig {
   , propertyOverrides :: [PropertyOverride]
   , debugOption :: Maybe DebugOption
   , version :: Maybe Version
+  , dirName :: Maybe Text
   } deriving (Generic, Show)
 
 instance ToJSON NodeConfig

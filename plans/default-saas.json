@@ -34,7 +34,8 @@
       "ad.dw.http.adminPort=9081",
       "ad.jf.http.port=9030",
       "ad.jvm.heap.min=256m",
-      "ad.jvm.heap.max=256m"
+      "ad.jvm.heap.max=256m",
+      "ad.metric.processor.enabled.accounts=*"
       ]
   },
   {
