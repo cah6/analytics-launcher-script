@@ -146,26 +146,17 @@ waitForElasticsearch esPort = recoverAll (R.constantDelay 1000000 <> R.limitRetr
           void $ N.get ("http://localhost:" <> unpack esPort)
 
 startNodes :: T.FilePath -> NodeConfigs -> IO [ProcessHandle]
-startNodes baseDir configs = do
-  _ <- traverse (editVmOptionsFile baseDir) configs
-  traverse (shellReturnHandle . configToStartCmd baseDir) configs
+startNodes baseDir configs = 
+  let editAndStart = editVmOptionsFile baseDir >> shellReturnHandle . configToStartCmd baseDir
+  in  traverse editAndStart configs
+  -- _ <- traverse (editVmOptionsFile baseDir) configs
+  -- traverse (shellReturnHandle . configToStartCmd baseDir) configs
 
 editVmOptionsFile :: T.FilePath -> NodeConfig -> IO ()
 editVmOptionsFile baseDir nodeConfig = go (getVmOptionsFile baseDir nodeConfig) (debugOption nodeConfig) where
   go :: T.FilePath -> Maybe DebugOption -> IO ()
   go _ Nothing = return ()
   go vmOptionsFile (Just vmoption) = append vmOptionsFile (fromString $ unpack vmoption)
-
-editVersionFile :: T.FilePath -> NodeConfig -> IO ()
-editVersionFile baseDir config = editVersion versionFp (version config) where
-  versionFp = fromText $ format (fp%"/"%s%"/analytics-processor/version.txt") baseDir (nodeName config)
-
-editVersion :: T.FilePath -> Maybe Version -> IO ()
-editVersion _ Nothing = return ()
-editVersion versionFp (Just versionOverride) = do
-  versionFile <- readTextFile versionFp
-  let newVersionFile = replace "0.0.0.0" versionOverride versionFile
-  writeTextFile versionFp newVersionFile
 
 killHandles :: MVar () -> [ProcessHandle] -> Signals.Handler
 killHandles hasCleanupStarted handles = Catch $ tryKillAll hasCleanupStarted handles
@@ -231,7 +222,6 @@ data NodeConfig = NodeConfig
   { nodeName :: NodeName
   , propertyOverrides :: [PropertyOverride]
   , debugOption :: Maybe DebugOption
-  , version :: Maybe Version
   , dirName :: Maybe Text
   } deriving (Generic, Show)
 
@@ -241,4 +231,3 @@ instance FromJSON NodeConfig
 type NodeName = Text
 type PropertyOverride = Text
 type DebugOption = Text
-type Version = Text
