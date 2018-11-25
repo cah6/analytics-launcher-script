@@ -3,37 +3,28 @@
 {-# LANGUAGE LambdaCase, DeriveGeneric, NamedFieldPuns, OverloadedStrings, RecordWildCards #-}
 
 import Prelude hiding (mapM_)
-import Data.Aeson
-import Data.Aeson.Types()
+import Turtle as T
 import qualified Data.ByteString.Lazy as B
+import qualified Network.Wreq as N
+import qualified System.Process as S
+
+import Control.Concurrent (isEmptyMVar, forkIO, tryPutMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar)
+import Control.Exception (catch, throw, SomeException)
+import Control.Monad (void)
+import Control.Monad.Parallel (mapM_)
+import Control.Retry (constantDelay, limitRetries, recoverAll)
+import Data.Aeson
+import Data.List
 import Data.Maybe (fromMaybe)
 import Data.Text (unpack, unwords, isPrefixOf, stripPrefix)
-import Filesystem.Path.CurrentOS (encodeString)
-
-import Debug.Trace ()
-import Turtle as T
-import Turtle.Format()
-
-import Data.List
-import Data.ConfigFile()
-
-import Network.Wreq as N
-import Control.Retry as R
-
-import Control.Concurrent
-import Control.Concurrent.MVar (MVar, newEmptyMVar)
-import Control.Monad (void)
-import Control.Monad.Managed()
-import Control.Monad.Parallel (mapM_)
-
-import Control.Exception
-
-import System.Process as P
-import System.Process.Internals
-import System.Posix.Signals as Signals
-
-import GHC.Generics
+import Data.Tuple.All (sel4)
 import Debug.Trace (trace)
+import Filesystem.Path.CurrentOS (encodeString)
+import GHC.Generics
+import System.Process (createProcess, waitForProcess)
+import System.Process.Internals (ProcessHandle, ProcessHandle__(..), PHANDLE, withProcessHandle)
+import System.Posix.Signals (Handler(..), installHandler, sigINT, sigTERM)
 
 main :: IO ()
 main = do
@@ -74,7 +65,7 @@ mkUnzipCmd :: NodeConfig -> Text
 mkUnzipCmd conf = "unzip analytics-processor.zip -d " <> mkDirName conf
 
 mkDirName :: NodeConfig -> Text
-mkDirName NodeConfig{dirName, nodeName, ..} = fromMaybe nodeName dirName
+mkDirName NodeConfig{nodeName, dirName, ..} = fromMaybe nodeName dirName
 
 startAllNodes :: Bool -> T.FilePath -> NodeConfigs -> IO ()
 startAllNodes shouldKillAll baseDir config = do
@@ -139,7 +130,7 @@ handleError :: [ProcessHandle] -> SomeException -> IO ()
 handleError handles someE = kill9All handles >>= throw someE
 
 waitForElasticsearch :: Text -> IO ()
-waitForElasticsearch esPort = recoverAll (R.constantDelay 1000000 <> R.limitRetries 60) go where
+waitForElasticsearch esPort = recoverAll (constantDelay 1000000 <> limitRetries 60) go where
   go _ = trace "Waiting for Elasticsearch to start up..." $
           void $ N.get ("http://localhost:" <> unpack esPort)
 
@@ -147,8 +138,6 @@ startNodes :: T.FilePath -> NodeConfigs -> IO [ProcessHandle]
 startNodes baseDir configs = 
   let editAndStart = editVmOptionsFile baseDir >> shellReturnHandle . configToStartCmd baseDir
   in  traverse editAndStart configs
-  -- _ <- traverse (editVmOptionsFile baseDir) configs
-  -- traverse (shellReturnHandle . configToStartCmd baseDir) configs
 
 editVmOptionsFile :: T.FilePath -> NodeConfig -> IO ()
 editVmOptionsFile baseDir nodeConfig = go (getVmOptionsFile baseDir nodeConfig) (debugOption nodeConfig) where
@@ -156,7 +145,7 @@ editVmOptionsFile baseDir nodeConfig = go (getVmOptionsFile baseDir nodeConfig) 
   go _ Nothing = return ()
   go vmOptionsFile (Just vmoption) = append vmOptionsFile (fromString $ unpack vmoption)
 
-killHandles :: MVar () -> [ProcessHandle] -> Signals.Handler
+killHandles :: MVar () -> [ProcessHandle] -> Handler
 killHandles hasCleanupStarted handles = Catch $ tryKillAll hasCleanupStarted handles
 
 tryKillAll :: MVar () -> [ProcessHandle] -> IO ()
@@ -169,15 +158,19 @@ kill9All phs = void $ traverse kill9 phs
 
 kill9 :: ProcessHandle -> IO ()
 kill9 ph = void $ forkIO $ do
-  _ <- getPid ph >>= \case
-    Nothing -> return ()
-    Just a  -> void $ trace ("Soft killing process with id: [" ++ show a ++ "], will hard kill in 5 seconds if it's still alive") $
-      shellNoArgs (fromString ("kill " ++ show a))
+  _ <- getPid ph >>= voidMaybe softKillCmd
   sleep 5.0
-  _ <- getPid ph >>= \case
-    Nothing -> return ()
-    Just a  -> void $ trace ("Hard killing process with id: [" ++ show a ++ "]") $ shellNoArgs (fromString ("kill -9 " ++ show a))
+  _ <- getPid ph >>= voidMaybe hardKillCmd
   return ()
+    where
+  softKillCmd phandle = trace (softKillMsg phandle) $ shellsNoArgs (fromString ("kill " ++ show phandle))
+  softKillMsg showable = "Soft killing process with id: [" <> show showable <> "], will hard kill in 5 seconds if it's still alive"
+  hardKillCmd phandle = trace (hardKillMsg phandle) $ shellsNoArgs (fromString ("kill -9 " ++ show phandle))
+  hardKillMsg showable = "Hard killing process with id: [" <> show showable <> "]"
+
+voidMaybe :: Monad m => (a -> m ()) -> Maybe a -> m () 
+voidMaybe _ Nothing   = return ()
+voidMaybe f (Just a)  = f a
 
 configToStartCmd :: T.FilePath -> NodeConfig -> Text
 configToStartCmd baseDir nodeConfig = trace (show traceLine) finalCmd where
@@ -193,14 +186,14 @@ getPropertyOverrideString :: NodeConfig -> Text
 getPropertyOverrideString nodeConfig = Data.Text.unwords $ map (\prop -> "-D " <> prop) (propertyOverrides nodeConfig)
 
 shellReturnHandle :: Text -> IO ProcessHandle
-shellReturnHandle cmd = do
-  (_, _, _, ph) <- createProcess (P.shell (unpack cmd))
-  return ph
+shellReturnHandle cmd = createProcess (S.shell (unpack cmd)) >>= return <$> sel4
 
 getPid :: ProcessHandle -> IO (Maybe PHANDLE)
-getPid ph = withProcessHandle ph $ \case
-  OpenHandle pid  -> return $ Just pid
-  _               -> return Nothing
+getPid ph = withProcessHandle ph $ return <$> phToJust
+
+phToJust :: ProcessHandle__ -> Maybe PHANDLE
+phToJust (OpenHandle phandle) = Just phandle
+phToJust _                    = Nothing
 
 -- a few basic util methods that helped me
 

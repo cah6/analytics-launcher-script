@@ -33,3 +33,4 @@ executable analytics-startup
                      , system-filepath
                      , monad-parallel
                      , transformers
+                     , tuple
