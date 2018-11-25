@@ -1,0 +1,44 @@
+[
+  {
+    "nodeName": "api-store",
+    "dirName": "api-store-1",
+    "debugOption": "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005",
+    "propertyOverrides": [
+      "ad.es.node.http.enabled=true",
+      "ad.dw.http.port=9080",
+      "ad.dw.http.adminPort=9081",
+      "ad.es.node.http.port=9400",
+      "ad.es.event.index.replicas=1",
+      "ad.es.metadata.replicas=1",
+      "ad.es.metadata.entities.replicas=1",
+      "ad.es.node.tcp.ports=9300",
+      "ad.es.node.unicast.hosts=localhost:9300,localhost:9302,localhost:9304"
+    ]
+  },
+  {
+    "nodeName": "api-store",
+    "dirName": "api-store-2",
+    "propertyOverrides": [
+      "ad.dw.http.port=9082",
+      "ad.dw.http.adminPort=9083",
+      "ad.es.event.index.replicas=1",
+      "ad.es.metadata.replicas=1",
+      "ad.es.metadata.entities.replicas=1",
+      "ad.es.node.tcp.ports=9302",
+      "ad.es.node.unicast.hosts=localhost:9300,localhost:9302,localhost:9304"
+    ]
+  },
+  {
+    "nodeName": "api-store",
+    "dirName": "api-store-3",
+    "propertyOverrides": [
+      "ad.dw.http.port=9084",
+      "ad.dw.http.adminPort=9085",
+      "ad.es.event.index.replicas=1",
+      "ad.es.metadata.replicas=1",
+      "ad.es.metadata.entities.replicas=1",
+      "ad.es.node.tcp.ports=9304",
+      "ad.es.node.unicast.hosts=localhost:9300,localhost:9302,localhost:9304"
+    ]
+  }
+]

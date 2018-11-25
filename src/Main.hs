@@ -35,11 +35,6 @@ import System.Posix.Signals as Signals
 import GHC.Generics
 import Debug.Trace (trace)
 
--- TODO / ideas list
--- use reader to pass around config I get from the start
-
--- type Application m = ReaderT ProgramArgs m ()
-
 main :: IO ()
 main = do
   args <- T.options "Script to start up SaaS-like analytics cluster." optionsParser
@@ -75,8 +70,8 @@ optionsParser = ProgramArgs
   <$> optPath "plan" 'p' "Location of json file that defines which nodes are started."
   <*> switch "no-kill-all" 'n' "Set to turn off default behavior of killing all nodes if one dies."
 
-data ProgramArgs = ProgramArgs {
-    planPath      :: T.FilePath
+data ProgramArgs = ProgramArgs 
+  { planPath      :: T.FilePath
   , doNotKillAll  :: Bool
   }
 
@@ -153,7 +148,6 @@ waitForElasticsearch esPort = recoverAll (R.constantDelay 1000000 <> R.limitRetr
 startNodes :: T.FilePath -> NodeConfigs -> IO [ProcessHandle]
 startNodes baseDir configs = do
   _ <- traverse (editVmOptionsFile baseDir) configs
-  _ <- traverse (editVersionFile baseDir) configs
   traverse (shellReturnHandle . configToStartCmd baseDir) configs
 
 editVmOptionsFile :: T.FilePath -> NodeConfig -> IO ()
@@ -233,8 +227,8 @@ getPropOrDie prop message = need prop >>= \case
   Just a  -> return $ fromText a
 
 type NodeConfigs = [NodeConfig]
-data NodeConfig = NodeConfig {
-    nodeName :: NodeName
+data NodeConfig = NodeConfig 
+  { nodeName :: NodeName
   , propertyOverrides :: [PropertyOverride]
   , debugOption :: Maybe DebugOption
   , version :: Maybe Version

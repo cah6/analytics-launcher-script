@@ -1,13 +1,13 @@
 [
   {
     "nodeName": "api-store",
-    "version": "4.4.3.0",
     "debugOption": "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005",
     "propertyOverrides": [
       "ad.es.node.http.enabled=true",
       "ad.dw.http.port=9080",
       "ad.dw.http.adminPort=9081",
-      "ad.es.node.http.port=9400"
+      "ad.es.node.http.port=9400",
+      "ad.jvm.options.name=analytics-sidecar.vmoptions"
     ]
   }
 ]
