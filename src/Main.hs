@@ -1,13 +1,13 @@
 #!/usr/bin/env stack
 -- stack --install-ghc runghc --package turtle
-{-# LANGUAGE LambdaCase, DeriveGeneric, OverloadedStrings, RecordWildCards #-}
+{-# LANGUAGE LambdaCase, DeriveGeneric, NamedFieldPuns, OverloadedStrings, RecordWildCards #-}
 
 import Prelude hiding (mapM_)
 import Data.Aeson
 import Data.Aeson.Types()
 import qualified Data.ByteString.Lazy as B
-import Data.Maybe()
-import Data.Text (unpack, unwords, isPrefixOf, stripPrefix, replace)
+import Data.Maybe (fromMaybe)
+import Data.Text (unpack, unwords, isPrefixOf, stripPrefix)
 import Filesystem.Path.CurrentOS (encodeString)
 
 import Debug.Trace ()
@@ -39,27 +39,22 @@ main :: IO ()
 main = do
   args <- T.options "Script to start up SaaS-like analytics cluster." optionsParser
   currDir <- pwd
-  config <- makeNodeConfig currDir (planPath args)
-  print config
+  configs <- makeNodeConfigs currDir (planPath args)
+  print configs
   homeDir <- getPropOrDie "ANALYTICS_HOME" "Set it to be something like /Users/firstname.lastname/appdynamics/analytics-codebase/analytics"
   cd homeDir
   shellsNoArgs "./gradlew --build-cache -p analytics-processor clean distZip"
   cd "analytics-processor/build/distributions"
   baseDir <- pwd
   -- unzip all nodes and join
-  sh $ parallel $ unzipCmds (map mkDirName config)
+  sh $ parallel $ map (shellNoArgs . mkUnzipCmd) configs
   -- run all the nodes
-  _ <- startAllNodes (not (doNotKillAll args)) baseDir config
+  _ <- startAllNodes (not (doNotKillAll args)) baseDir configs
   -- should not hit this until you ctrl+c and all nodes stop
   putStrLn "End of the script!"
 
-mkDirName :: NodeConfig -> Text
-mkDirName NodeConfig{..} = case dirName of 
-  Nothing -> nodeName
-  Just a -> a
-
-makeNodeConfig :: T.FilePath -> T.FilePath -> IO NodeConfigs
-makeNodeConfig basePath relativePath = do
+makeNodeConfigs :: T.FilePath -> T.FilePath -> IO NodeConfigs
+makeNodeConfigs basePath relativePath = do
   planInBytes <- B.readFile (encodeString $ basePath <> relativePath)
   case eitherDecode planInBytes of
     Left readErr  -> die $ fromString $ "Could not read input file into plan object: " <> readErr
@@ -75,8 +70,9 @@ data ProgramArgs = ProgramArgs
   , doNotKillAll  :: Bool
   }
 
-unzipCmds :: [Text] -> [IO ()]
-unzipCmds = map (shellsNoArgs . (<>) "unzip analytics-processor.zip -d ")
+mkUnzipCmd :: NodeConfig -> Text
+mkUnzipCmd NodeConfig{dirName, nodeName, ..} = 
+  "unzip analytics-processor.zip -d " <> fromMaybe nodeName dirName
 
 startAllNodes :: Bool -> T.FilePath -> NodeConfigs -> IO ()
 startAllNodes shouldKillAll baseDir config = do
