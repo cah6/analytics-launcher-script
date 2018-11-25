@@ -1,9 +1,9 @@
 #!/usr/bin/env stack
 -- stack --install-ghc runghc --package turtle
-{-# LANGUAGE LambdaCase, DeriveGeneric, NamedFieldPuns, OverloadedStrings, RecordWildCards #-}
+{-# LANGUAGE LambdaCase, DeriveGeneric, GeneralizedNewtypeDeriving, NamedFieldPuns, OverloadedStrings, RecordWildCards #-}
 
-import Prelude hiding (mapM_)
-import Turtle as T
+import Prelude hiding (mapM_, unwords)
+import Turtle as T hiding (find, stripPrefix)
 import qualified Data.ByteString.Lazy as B
 import qualified Network.Wreq as N
 import qualified System.Process as S
@@ -15,9 +15,9 @@ import Control.Monad (void)
 import Control.Monad.Parallel (mapM_)
 import Control.Retry (constantDelay, limitRetries, recoverAll)
 import Data.Aeson
-import Data.List
+import Data.List (find, partition)
 import Data.Maybe (fromMaybe)
-import Data.Text (unpack, unwords, isPrefixOf, stripPrefix)
+import Data.Text (isPrefixOf, pack, unpack, unwords, isPrefixOf, stripPrefix, unwords)
 import Data.Tuple.All (sel4)
 import Debug.Trace (trace)
 import Filesystem.Path.CurrentOS (encodeString)
@@ -99,8 +99,9 @@ waitOrCleanupAll shouldKillAll cleanupMVar allHandles thisHandle = getPid thisHa
           (tryKillAll cleanupMVar allHandles)
 
 isStoreConfig :: NodeConfig -> Bool
-isStoreConfig config = "store" `Data.Text.isPrefixOf` name || "api-store" `Data.Text.isPrefixOf` name where
-  name = nodeName config
+isStoreConfig config = 
+  let name = nodeName config
+  in  "store" `isPrefixOf` name || "api-store" `isPrefixOf` name
 
 getVmOptionsFile :: T.FilePath -> NodeConfig -> T.FilePath
 getVmOptionsFile baseDir nodeConfig =
@@ -116,12 +117,11 @@ getElasticsearchPort configs = case getOptElasticsearchPort configs of
     Just a  -> return a
 
 getOptElasticsearchPort :: NodeConfigs -> Maybe Text
-getOptElasticsearchPort configs = do
+getOptElasticsearchPort configs =
   let portPrefix = "ad.es.node.http.port=" :: Text
-  let isPortProp p = portPrefix `Data.Text.isPrefixOf` p
-  let esProps = propertyOverrides (head configs)
-  portProp <- Data.List.find isPortProp esProps
-  Data.Text.stripPrefix portPrefix portProp
+      isPortProp p = portPrefix `isPrefixOf` p
+      esProps = propertyOverrides (head configs)
+  in  find isPortProp esProps >>= stripPrefix portPrefix
 
 tryWaitForElasticsearch :: [ProcessHandle] -> Text -> IO ()
 tryWaitForElasticsearch handles esPort = catch (waitForElasticsearch esPort) (handleError handles)
@@ -135,15 +135,14 @@ waitForElasticsearch esPort = recoverAll (constantDelay 1000000 <> limitRetries 
           void $ N.get ("http://localhost:" <> unpack esPort)
 
 startNodes :: T.FilePath -> NodeConfigs -> IO [ProcessHandle]
-startNodes baseDir configs = 
-  let editAndStart = editVmOptionsFile baseDir >> shellReturnHandle . configToStartCmd baseDir
-  in  traverse editAndStart configs
+startNodes baseDir = traverse $ 
+  editVmOptionsFile baseDir >> shellReturnHandle . configToStartCmd baseDir
 
 editVmOptionsFile :: T.FilePath -> NodeConfig -> IO ()
-editVmOptionsFile baseDir nodeConfig = go (getVmOptionsFile baseDir nodeConfig) (debugOption nodeConfig) where
-  go :: T.FilePath -> Maybe DebugOption -> IO ()
-  go _ Nothing = return ()
-  go vmOptionsFile (Just vmoption) = append vmOptionsFile (fromString $ unpack vmoption)
+editVmOptionsFile baseDir nodeConfig = performIfExists modifyFile (debugOption nodeConfig) 
+    where
+  modifyFile :: DebugOption -> IO ()
+  modifyFile (DebugOption opt) = append (getVmOptionsFile baseDir nodeConfig) (fromString $ unpack opt)
 
 killHandles :: MVar () -> [ProcessHandle] -> Handler
 killHandles hasCleanupStarted handles = Catch $ tryKillAll hasCleanupStarted handles
@@ -158,19 +157,18 @@ kill9All phs = void $ traverse kill9 phs
 
 kill9 :: ProcessHandle -> IO ()
 kill9 ph = void $ forkIO $ do
-  _ <- getPid ph >>= voidMaybe softKillCmd
+  _ <- getPid ph >>= performIfExists (killCmdTemplate softKillMsg "kill ")
   sleep 5.0
-  _ <- getPid ph >>= voidMaybe hardKillCmd
+  _ <- getPid ph >>= performIfExists (killCmdTemplate hardKillMsg "kill -9 ")
   return ()
     where
-  softKillCmd phandle = trace (softKillMsg phandle) $ shellsNoArgs (fromString ("kill " ++ show phandle))
+  killCmdTemplate msg baseCmd pid = trace (msg pid) $ shellsNoArgs (baseCmd <> showT pid)
   softKillMsg showable = "Soft killing process with id: [" <> show showable <> "], will hard kill in 5 seconds if it's still alive"
-  hardKillCmd phandle = trace (hardKillMsg phandle) $ shellsNoArgs (fromString ("kill -9 " ++ show phandle))
   hardKillMsg showable = "Hard killing process with id: [" <> show showable <> "]"
 
-voidMaybe :: Monad m => (a -> m ()) -> Maybe a -> m () 
-voidMaybe _ Nothing   = return ()
-voidMaybe f (Just a)  = f a
+performIfExists :: Monad m => (a -> m ()) -> Maybe a -> m () 
+performIfExists _ Nothing   = return ()
+performIfExists f (Just a)  = f a
 
 configToStartCmd :: T.FilePath -> NodeConfig -> Text
 configToStartCmd baseDir nodeConfig = trace (show traceLine) finalCmd where
@@ -183,10 +181,7 @@ configToStartCmd baseDir nodeConfig = trace (show traceLine) finalCmd where
   traceLine = format ("Starting ["%s%"] with command:      "%s) (nodeName nodeConfig) finalCmd
 
 getPropertyOverrideString :: NodeConfig -> Text
-getPropertyOverrideString nodeConfig = Data.Text.unwords $ map (\prop -> "-D " <> prop) (propertyOverrides nodeConfig)
-
-shellReturnHandle :: Text -> IO ProcessHandle
-shellReturnHandle cmd = createProcess (S.shell (unpack cmd)) >>= return <$> sel4
+getPropertyOverrideString nodeConfig = unwords $ map (\prop -> "-D " <> prop) (propertyOverrides nodeConfig)
 
 getPid :: ProcessHandle -> IO (Maybe PHANDLE)
 getPid ph = withProcessHandle ph $ return <$> phToJust
@@ -195,7 +190,7 @@ phToJust :: ProcessHandle__ -> Maybe PHANDLE
 phToJust (OpenHandle phandle) = Just phandle
 phToJust _                    = Nothing
 
--- a few basic util methods that helped me
+-- More general util methods
 
 shellNoArgs :: Text -> IO ExitCode
 shellNoArgs cmd = T.shell cmd empty
@@ -208,10 +203,16 @@ getPropOrDie prop message = need prop >>= \case
   Nothing -> die (prop <> " was not set. " <> message)
   Just a  -> return $ fromText a
 
+showT :: Show a => a -> Text
+showT = (pack . show)
+
+shellReturnHandle :: Text -> IO ProcessHandle
+shellReturnHandle cmd = createProcess (S.shell (unpack cmd)) >>= return <$> sel4
+
 type NodeConfigs = [NodeConfig]
 data NodeConfig = NodeConfig 
-  { nodeName :: NodeName
-  , propertyOverrides :: [PropertyOverride]
+  { nodeName :: Text
+  , propertyOverrides :: [Text]
   , debugOption :: Maybe DebugOption
   , dirName :: Maybe Text
   } deriving (Generic, Show)
@@ -219,6 +220,5 @@ data NodeConfig = NodeConfig
 instance ToJSON NodeConfig
 instance FromJSON NodeConfig
 
-type NodeName = Text
-type PropertyOverride = Text
-type DebugOption = Text
+newtype DebugOption = DebugOption Text
+  deriving (Generic, Show, ToJSON, FromJSON)
