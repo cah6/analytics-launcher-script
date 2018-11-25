@@ -71,8 +71,10 @@ data ProgramArgs = ProgramArgs
   }
 
 mkUnzipCmd :: NodeConfig -> Text
-mkUnzipCmd NodeConfig{dirName, nodeName, ..} = 
-  "unzip analytics-processor.zip -d " <> fromMaybe nodeName dirName
+mkUnzipCmd conf = "unzip analytics-processor.zip -d " <> mkDirName conf
+
+mkDirName :: NodeConfig -> Text
+mkDirName NodeConfig{dirName, nodeName, ..} = fromMaybe nodeName dirName
 
 startAllNodes :: Bool -> T.FilePath -> NodeConfigs -> IO ()
 startAllNodes shouldKillAll baseDir config = do
