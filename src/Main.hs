@@ -103,14 +103,6 @@ isStoreConfig config =
   let name = nodeName config
   in  "store" `isPrefixOf` name || "api-store" `isPrefixOf` name
 
-getVmOptionsFile :: T.FilePath -> NodeConfig -> T.FilePath
-getVmOptionsFile baseDir nodeConfig =
-  if isStoreConfig nodeConfig
-    then fromText $ vmOptionsFileFormat "analytics-sidecar"
-    else fromText $ vmOptionsFileFormat "analytics-processor"
-  where
-    vmOptionsFileFormat = format (fp % "/" %s % "/analytics-processor/conf/" %s % ".vmoptions") baseDir (mkDirName nodeConfig)
-
 getElasticsearchPort :: NodeConfigs -> IO Text
 getElasticsearchPort configs = case getOptElasticsearchPort configs of
     Nothing -> die "ad.es.node.http.port wasn't set in elasticsearch property overrides"
@@ -134,15 +126,29 @@ waitForElasticsearch esPort = recoverAll (constantDelay 1000000 <> limitRetries 
   go _ = trace "Waiting for Elasticsearch to start up..." $
           void $ N.get ("http://localhost:" <> unpack esPort)
 
+-- startNodes :: T.FilePath -> NodeConfigs -> IO [ProcessHandle]
+-- startNodes baseDir = traverse $ 
+--   editVmOptionsFile baseDir >> shellReturnHandle . configToStartCmd baseDir
+
 startNodes :: T.FilePath -> NodeConfigs -> IO [ProcessHandle]
-startNodes baseDir = traverse $ 
-  editVmOptionsFile baseDir >> shellReturnHandle . configToStartCmd baseDir
+startNodes baseDir configs = do
+  _ <- traverse (editVmOptionsFile baseDir) configs
+  traverse (shellReturnHandle . configToStartCmd baseDir) configs
 
 editVmOptionsFile :: T.FilePath -> NodeConfig -> IO ()
 editVmOptionsFile baseDir nodeConfig = performIfExists modifyFile (debugOption nodeConfig) 
     where
   modifyFile :: DebugOption -> IO ()
-  modifyFile (DebugOption opt) = append (getVmOptionsFile baseDir nodeConfig) (fromString $ unpack opt)
+  modifyFile (DebugOption opt) = append file "" >> append file (fromString $ unpack opt)
+  file = getVmOptionsFile baseDir nodeConfig
+
+getVmOptionsFile :: T.FilePath -> NodeConfig -> T.FilePath
+getVmOptionsFile baseDir nodeConfig =
+  if isStoreConfig nodeConfig
+    then fromText $ vmOptionsFileFormat "analytics-sidecar"
+    else fromText $ vmOptionsFileFormat "analytics-processor"
+  where
+    vmOptionsFileFormat = format (fp % "/" %s % "/analytics-processor/conf/" %s % ".vmoptions") baseDir (mkDirName nodeConfig)
 
 killHandles :: MVar () -> [ProcessHandle] -> Handler
 killHandles hasCleanupStarted handles = Catch $ tryKillAll hasCleanupStarted handles

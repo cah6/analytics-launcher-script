@@ -19,6 +19,7 @@ executable analytics-startup
   build-depends:       base >= 4.7 && < 5
                      , turtle
                      , ConfigFile
+                     , containers
                      , mtl
                      , retry
                      , wreq

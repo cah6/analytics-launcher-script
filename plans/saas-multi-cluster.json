@@ -1,0 +1,136 @@
+[
+  {
+    "nodeName": "store-master",
+    "dirName": "store-master-c1",
+    "propertyOverrides": [
+      "ad.es.node.minimum_master_nodes=1",
+      "ad.dw.http.port=9050",
+      "ad.dw.http.adminPort=9051",
+      "ad.es.node.http.port=9400",
+      "ad.es.node.tcp.ports=9300",
+      "ad.es.cluster.name=appdynamics-analytics-cluster1",
+      "ad.jvm.heap.min=128m",
+      "ad.jvm.heap.max=128m"
+    ]
+  },
+  {
+    "nodeName": "store-data",
+    "dirName": "store-data-c1",
+    "propertyOverrides": [
+      "ad.dw.http.port=9052",
+      "ad.dw.http.adminPort=9053",
+      "ad.es.node.unicast.hosts=localhost:9300",
+      "ad.es.node.tcp.ports=9301",
+      "ad.es.cluster.name=appdynamics-analytics-cluster1",
+      "ad.jvm.heap.min=128m",
+      "ad.jvm.heap.max=128m"
+    ]
+  },
+  {
+    "nodeName": "store-master",
+    "dirName": "store-master-c2",
+    "propertyOverrides": [
+      "ad.es.node.minimum_master_nodes=1",
+      "ad.dw.http.port=9054",
+      "ad.dw.http.adminPort=9055",
+      "ad.es.node.http.port=9404",
+      "ad.es.node.tcp.ports=9304",
+      "ad.es.node.unicast.hosts=localhost:9304",
+      "ad.es.cluster.name=appdynamics-analytics-cluster2",
+      "ad.jvm.heap.min=128m",
+      "ad.jvm.heap.max=128m"
+    ]
+  },
+  {
+    "nodeName": "store-data",
+    "dirName": "store-data-c2",
+    "propertyOverrides": [
+      "ad.dw.http.port=9056",
+      "ad.dw.http.adminPort=9057",
+      "ad.es.node.unicast.hosts=localhost:9304",
+      "ad.es.node.tcp.ports=9305",
+      "ad.es.cluster.name=appdynamics-analytics-cluster2",
+      "ad.jvm.heap.min=128m",
+      "ad.jvm.heap.max=128m"
+    ]
+  },
+  {
+    "nodeName": "api",
+    "debugOption": "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005",
+    "propertyOverrides": [
+      "ad.admin.cluster.name=appdynamics-analytics-cluster1",
+      "ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
+      "ad.cluster.names=appdynamics-analytics-cluster1,appdynamics-analytics-cluster2",
+      "ad.metric.processor.clients.fallback=appdynamics-analytics-cluster=localhost:9020",
+      "ad.es.event.index.replicas=0",
+      "ad.es.metadata.replicas=0",
+      "ad.es.metadata.entities.replicas=0",
+      "ad.dw.http.port=9080",
+      "ad.dw.http.adminPort=9081",
+      "ad.jf.http.port=9030",
+      "ad.jvm.heap.min=256m",
+      "ad.jvm.heap.max=256m",
+      "ad.metric.processor.enabled.accounts=*"
+      ]
+  },
+  {
+    "nodeName": "indexer",
+    "propertyOverrides": [
+      "ad.admin.cluster.name=appdynamics-analytics-cluster",
+      "ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
+      "ad.cluster.names=appdynamics-analytics-cluster1",
+      "ad.kafka.replication.factor=1",
+      "ad.dw.http.port=9070",
+      "ad.dw.http.adminPort=9071",
+      "ad.jvm.heap.min=256m",
+      "ad.jvm.heap.max=256m"
+    ]
+  },
+  {
+    "nodeName": "kafka-broker",
+    "propertyOverrides": [
+      "ad.kafka.replication.factor=1",
+      "ad.dw.http.port=9060",
+      "ad.dw.http.adminPort=9061",
+      "ad.jvm.heap.min=256m",
+      "ad.jvm.heap.max=256m"
+    ]
+  },
+  {
+    "nodeName": "zookeeper",
+    "propertyOverrides": [
+      "ad.dw.http.port=9040",
+      "ad.dw.http.adminPort=9041",
+      "ad.jvm.heap.min=128m",
+      "ad.jvm.heap.max=128m"
+    ]
+  },
+  {
+    "nodeName": "job-framework",
+    "propertyOverrides": [
+      "ad.dw.http.port=9030",
+      "ad.dw.http.adminPort=9031",
+      "ad.admin.cluster.name=appdynamics-analytics-cluster1",
+      "ad.admin.cluster.unicast.hosts.fallback=localhost:9300",
+      "ad.cluster.names=appdynamics-analytics-cluster1",
+      "ad.jvm.heap.min=256m",
+      "ad.jvm.heap.max=256m"
+    ]
+  },
+  {
+    "nodeName": "metric-processor",
+    "propertyOverrides": [
+      "ad.dw.http.port=9020",
+      "ad.dw.http.adminPort=9021",
+      "ad.kafka.replication.factor=1",
+      "ad.metric.processor.stream.applicationServer=localhost:9020",
+      "ad.metric.processor.stream.numStandByReplicas=0",
+      "ad.metric.processor.stream.numOfStreamThreads=1",
+      "ad.eventType.client.enabled=true",
+      "ad.eventType.http.host=localhost",
+      "ad.eventType.http.port=9080",
+      "ad.jvm.heap.min=256m",
+      "ad.jvm.heap.max=256m"
+    ]
+  }
+]
