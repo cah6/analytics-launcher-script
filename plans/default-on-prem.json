@@ -5,9 +5,7 @@
       "ad.es.node.http.enabled=true",
       "ad.dw.http.port=9080",
       "ad.dw.http.adminPort=9081",
-      "ad.es.node.http.port=9400",
-      "ad.jvm.options.name=analytics-processor.vmoptions",
-      "ad.es.jvm.options.name=elasticsearch.vmoptions"
+      "ad.es.node.http.port=9400"
     ]
   }
 ]
